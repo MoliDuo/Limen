@@ -6,6 +6,10 @@ import { Download, Loader2, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { WritingStats } from '@/lib/stats';
 import { LogoutButton } from '@/components/LogoutButton';
+import {
+  SecuritySettings,
+  type ApiTokenSummary,
+} from '@/components/SecuritySettings';
 import { messages } from '@/lib/messages';
 import { trashPath } from '@/lib/pathname';
 import { saveSettings } from '@/lib/actions/settings';
@@ -81,10 +85,12 @@ export function SettingsForm({
   settings,
   availableTags,
   stats,
+  apiTokens,
 }: {
   settings: AppSettings;
   availableTags: string[];
   stats: WritingStats;
+  apiTokens: ApiTokenSummary[];
 }) {
   const [formSettings, setFormSettings] = useState(settings);
   const [isExporting, setIsExporting] = useState(false);
@@ -348,6 +354,8 @@ export function SettingsForm({
           </Link>
         </Button>
       </section>
+
+      <SecuritySettings tokens={apiTokens} />
 
       <section aria-labelledby="account-heading" className="space-y-5">
         <h2

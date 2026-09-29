@@ -3,16 +3,19 @@
 import { after } from 'next/server';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { db } from '@/lib/db';
 import type { ActionResult } from '@/lib/actions/result';
 import { messages } from '@/lib/messages';
 import { createAuthActions } from './action-core';
-import { createLoginAttemptKey, verifyPassword } from './security';
+import { createLoginAttemptKey } from './security';
+import { unlockForLogin } from './login-unlock';
 import {
   createSession,
+  destroySession,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
-  sessionExpiry,
 } from './session';
+import { deleteExpiredSessions } from '@/lib/crypto/key-slots';
 import { purgeExpiredEntries } from '@/lib/trash/purge';
 import {
   cleanupLoginAttempts,
@@ -21,11 +24,11 @@ import {
   recordLoginFailure,
 } from './rate-limit';
 
-async function setSessionCookie(token: string) {
+async function setSessionCookie(token: string, expiresAt: Date) {
   (await cookies()).set(
     SESSION_COOKIE_NAME,
     token,
-    sessionCookieOptions(sessionExpiry()),
+    sessionCookieOptions(expiresAt),
   );
 }
 
@@ -38,20 +41,16 @@ async function clearSessionCookie() {
 }
 
 const authActions = createAuthActions({
-  verifyPassword,
+  unlock: (password) => unlockForLogin(password),
   getRateLimit: getLoginRateLimit,
   recordFailure: recordLoginFailure,
   clearFailures: clearLoginFailures,
-  createSession,
+  createSession: (dataKey) => createSession(db, dataKey),
   setSessionCookie,
+  destroySession: async () =>
+    destroySession(db, (await cookies()).get(SESSION_COOKIE_NAME)?.value),
   clearSessionCookie,
 });
-
-function loginKey(forwardedFor: string | null) {
-  const secret = process.env.AUTH_PASSWORD;
-  if (!secret) throw new Error('AUTH_PASSWORD is required');
-  return createLoginAttemptKey(forwardedFor, secret);
-}
 
 export async function handleLoginAttempt(
   attempt: () => Promise<ActionResult>,
@@ -77,9 +76,10 @@ export async function login(
       requestHeaders.get('x-forwarded-for');
     const loginResult = await authActions.login(
       formData,
-      loginKey(forwardedFor),
+      createLoginAttemptKey(forwardedFor),
     );
     after(() => cleanupLoginAttempts());
+    after(() => deleteExpiredSessions(db));
     // Guarantees the 30-day sweep eventually happens even if the owner never
     // opens the recycle bin, without a cron dependency. Deliberately not on
     // every timeline read: a day's delay is harmless, a DELETE per page load
@@ -91,4 +91,6 @@ export async function login(
   redirect('/');
 }
 
-export const logout = authActions.logout;
+export async function logout() {
+  return authActions.logout();
+}

@@ -5,7 +5,7 @@ import { processAIEntry } from '@/lib/ai/processor';
 import { nanoid } from 'nanoid';
 import { eq } from 'drizzle-orm';
 import { loadApiEntriesPage } from '@/lib/dashboard-data';
-import { hasValidBearerToken } from '@/lib/auth/security';
+import { authorizeApiRequest } from '@/lib/auth/security';
 import { InputValidationError, parseEntryInput } from '@/lib/validation';
 import { parsePageLimit } from '@/lib/pagination';
 import { serializeApiEntry } from '@/lib/api/entry-serializer';
@@ -20,7 +20,7 @@ type RouteDeps = {
   createId: () => string;
   processAIEntry: typeof processAIEntry;
   schedule: (fn: () => Promise<void>) => void | Promise<void>;
-  authorizeRequest?: (request: Request) => boolean;
+  authorizeRequest?: (request: Request) => Promise<boolean> | boolean;
 };
 
 function validationResponse(error: InputValidationError) {
@@ -35,11 +35,11 @@ export function createEntriesRouteHandlers({
   createId,
   processAIEntry,
   schedule,
-  authorizeRequest = hasValidBearerToken,
+  authorizeRequest = (request) => authorizeApiRequest(request, database),
 }: RouteDeps) {
   return {
     async POST(request: Request) {
-      if (!authorizeRequest(request)) {
+      if (!(await authorizeRequest(request))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
       let id: string | null = null;
@@ -115,7 +115,7 @@ export function createEntriesRouteHandlers({
     },
 
     async GET(request: Request) {
-      if (!authorizeRequest(request)) {
+      if (!(await authorizeRequest(request))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
       try {

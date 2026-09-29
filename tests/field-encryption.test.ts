@@ -6,9 +6,8 @@ import { FieldCipher, entryFieldAad } from '@/lib/crypto/field-cipher';
 import { getFieldCipher } from '@/lib/crypto/cipher';
 import {
   EncryptionKeyError,
-  addPasswordSlot,
+  changePassword,
   countKeySlots,
-  removeOtherPasswordSlots,
   unlockDataKey,
 } from '@/lib/crypto/key-slots';
 import { countLegacyRows, encryptLegacyRows } from '@/lib/crypto/backfill';
@@ -20,8 +19,7 @@ import { loadDashboardEntriesPage } from '@/lib/dashboard-data';
 import { loadExportEntries } from '@/lib/export-data';
 import { createTestDb } from './helpers/test-db';
 import { seedEntry } from './helpers/test-entries';
-
-const PASSWORD = process.env.AUTH_PASSWORD as string;
+import { TEST_PASSWORD as PASSWORD } from './helpers/test-password';
 
 test('a field decrypts only under the row and column it was written for', () => {
   const cipher = new FieldCipher(Buffer.alloc(32, 1));
@@ -124,7 +122,7 @@ test('the wrong password fails loudly and never mints a second key', async () =>
       unlockDataKey(fixture.db, 'not-the-password'),
       EncryptionKeyError,
     );
-    assert.equal(await countKeySlots(fixture.db), 1);
+    assert.equal((await countKeySlots(fixture.db)).password, 1);
     assert.deepEqual(await unlockDataKey(fixture.db, PASSWORD), key);
   } finally {
     await fixture.cleanup();
@@ -140,7 +138,7 @@ test('a lost slots table does not silently start a new key', async () => {
       unlockDataKey(fixture.db, PASSWORD),
       /Refusing to create a new key/,
     );
-    assert.equal(await countKeySlots(fixture.db), 0);
+    assert.equal((await countKeySlots(fixture.db)).password, 0);
   } finally {
     await fixture.cleanup();
   }
@@ -156,7 +154,7 @@ test('racing first unlocks agree on one key', async () => {
     ]);
     assert.deepEqual(keys[1], keys[0]);
     assert.deepEqual(keys[2], keys[0]);
-    assert.equal(await countKeySlots(fixture.db), 1);
+    assert.equal((await countKeySlots(fixture.db)).password, 1);
   } finally {
     await fixture.cleanup();
   }
@@ -169,26 +167,20 @@ test('changing the password re-wraps the key without touching entries', async ()
     const [before] = await fixture.db.select().from(entries);
     const key = await unlockDataKey(fixture.db, PASSWORD);
 
-    assert.deepEqual(
-      await addPasswordSlot(fixture.db, PASSWORD, 'new-password'),
-      { added: true },
-    );
-    assert.deepEqual(
-      await addPasswordSlot(fixture.db, PASSWORD, 'new-password'),
-      { added: false },
-    );
-    // Both open it during the switch, so no deployment is ever locked out.
-    assert.deepEqual(await unlockDataKey(fixture.db, 'new-password'), key);
-    assert.deepEqual(await unlockDataKey(fixture.db, PASSWORD), key);
-
     assert.equal(
-      (await removeOtherPasswordSlots(fixture.db, 'new-password')).removed,
-      1,
+      await changePassword(fixture.db, 'not-the-password', 'new-password'),
+      false,
     );
+    assert.equal(
+      await changePassword(fixture.db, PASSWORD, 'new-password'),
+      true,
+    );
+    assert.deepEqual(await unlockDataKey(fixture.db, 'new-password'), key);
     await assert.rejects(
       unlockDataKey(fixture.db, PASSWORD),
       EncryptionKeyError,
     );
+    assert.equal((await countKeySlots(fixture.db)).password, 1);
     const [after] = await fixture.db.select().from(entries);
     assert.equal(after.content, before.content);
     assert.equal(

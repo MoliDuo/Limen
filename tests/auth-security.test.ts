@@ -2,35 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createLoginAttemptKey,
-  hasValidBearerToken,
+  readBearerToken,
   secureStringEqual,
-  verifyPassword,
 } from '@/lib/auth/security';
 
-test('web login and Bearer API use the same plaintext password', async () => {
-  const password = 'one-shared-password';
-  assert.equal(await verifyPassword(password, password), true);
-  assert.equal(await verifyPassword('wrong', password), false);
-  assert.equal(secureStringEqual(password, password), true);
+test('secureStringEqual compares strings only', () => {
+  assert.equal(secureStringEqual('same', 'same'), true);
   assert.equal(secureStringEqual('short', 'longer'), false);
-  assert.equal(
-    hasValidBearerToken(
-      new Request('http://localhost/api/entries', {
-        headers: { Authorization: `Bearer ${password}` },
-      }),
-      password,
-    ),
-    true,
-  );
-  assert.equal(
-    hasValidBearerToken(new Request('http://localhost/api/entries'), password),
-    false,
-  );
+  assert.equal(secureStringEqual(undefined, 'x'), false);
 });
 
-test('login identifiers are HMACed and stable', () => {
-  const first = createLoginAttemptKey('203.0.113.1, 10.0.0.1', 'secret');
-  assert.equal(first, createLoginAttemptKey('203.0.113.1', 'secret'));
-  assert.notEqual(first, createLoginAttemptKey('203.0.113.2', 'secret'));
+test('Bearer tokens are read from the Authorization header', () => {
+  assert.equal(readBearerToken('Bearer limen_a.b'), 'limen_a.b');
+  assert.equal(readBearerToken('Basic abc'), null);
+  assert.equal(readBearerToken(null), null);
+});
+
+test('login identifiers are hashed and stable', () => {
+  const first = createLoginAttemptKey('203.0.113.1, 10.0.0.1');
+  assert.equal(first, createLoginAttemptKey('203.0.113.1'));
+  assert.notEqual(first, createLoginAttemptKey('203.0.113.2'));
   assert.doesNotMatch(first, /203\.0\.113/);
+  assert.equal(createLoginAttemptKey(null), createLoginAttemptKey(''));
 });

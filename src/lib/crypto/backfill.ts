@@ -7,6 +7,7 @@ import {
   CIPHERTEXT_PREFIX,
   isEncrypted,
   type EntryField,
+  type FieldCipher,
 } from '@/lib/crypto/field-cipher';
 
 /**
@@ -43,9 +44,12 @@ export type BackfillResult = {
 
 export async function encryptLegacyRows(
   database: AppDatabase,
-  { deadline = Number.POSITIVE_INFINITY }: { deadline?: number } = {},
+  {
+    deadline = Number.POSITIVE_INFINITY,
+    cipher: givenCipher,
+  }: { deadline?: number; cipher?: FieldCipher } = {},
 ): Promise<BackfillResult> {
-  const cipher = await getFieldCipher(database);
+  const cipher = givenCipher ?? (await getFieldCipher(database));
   const result: BackfillResult = { entries: 0, tags: 0, complete: false };
 
   // Rows skipped because a concurrent write won; they are not retried in this
@@ -167,9 +171,12 @@ let backgroundDone = false;
  * Runs from after() on the timeline, so an upgraded deployment encrypts its
  * old rows without anyone having to remember a command. Large diaries finish
  * over several visits; `npm run crypto encrypt-existing` does it in one go.
+ * Takes the cipher from the render that scheduled it, since after() in a
+ * Server Component cannot read the session cookie.
  */
 export async function encryptLegacyRowsInBackground(
   database: AppDatabase,
+  cipher: FieldCipher,
   now = Date.now(),
 ) {
   if (backgroundDone || now - lastBackgroundRunAt < BACKGROUND_THROTTLE_MS)
@@ -178,6 +185,7 @@ export async function encryptLegacyRowsInBackground(
   try {
     const result = await encryptLegacyRows(database, {
       deadline: now + BACKGROUND_BUDGET_MS,
+      cipher,
     });
     if (result.complete) backgroundDone = true;
   } catch (error) {

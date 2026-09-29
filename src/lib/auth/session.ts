@@ -1,36 +1,39 @@
 import { cookies } from 'next/headers';
-import { randomUUID } from 'node:crypto';
-import { SignJWT, jwtVerify } from 'jose';
+import { db, type AppDatabase } from '@/lib/db';
+import {
+  createCredentialSlot,
+  deleteCredentialSlot,
+  updateCredentialSlot,
+} from '@/lib/crypto/key-slots';
+import {
+  forgetCredentials,
+  formatCredential,
+  verifyCredential,
+} from '@/lib/auth/credentials';
 
-const SESSION_ISSUER = 'limen';
-const SESSION_AUDIENCE = 'limen-web';
-const SESSION_SUBJECT = 'owner';
+/**
+ * Sessions are key slots (lib/crypto/key-slots.ts): the cookie holds the only
+ * copy of the secret that opens the session's wrapped data key. Signing out
+ * or changing the password deletes the slot, which ends the session on every
+ * instance within a minute (see the cache in lib/auth/credentials.ts).
+ */
+
 export const SESSION_DURATION_SECONDS = 7 * 24 * 60 * 60;
 /**
- * Re-sign a session once it has less than this left.
+ * Extend a session once it has less than this left.
  *
  * Without renewal the cookie is a hard 7-day timer, so someone writing every
  * day still gets logged out every week for no reason. Renewing only in the
- * last third keeps the number of re-signs low.
+ * last third keeps the number of writes low.
  */
 export const SESSION_RENEW_THRESHOLD_SECONDS = 3 * 24 * 60 * 60;
 
-export function shouldRenewSession(
-  payload: { exp?: number } | null | undefined,
-  now = new Date(),
-) {
-  if (!payload?.exp) return false;
-  const remaining = payload.exp - Math.floor(now.getTime() / 1_000);
-  return remaining > 0 && remaining < SESSION_RENEW_THRESHOLD_SECONDS;
-}
 export const SESSION_COOKIE_NAME =
   process.env.NODE_ENV === 'production'
     ? '__Host-limen-session'
     : 'limen-session';
 
-type CookieStore = {
-  get: (name: string) => { value?: string } | undefined;
-};
+export type Session = { id: string; expiresAt: Date };
 
 export class UnauthorizedError extends Error {
   constructor() {
@@ -39,71 +42,17 @@ export class UnauthorizedError extends Error {
   }
 }
 
-function validateSessionSecret(secretKey: string) {
-  if (!secretKey) throw new Error('AUTH_PASSWORD is required');
+export function shouldRenewSession(
+  session: Session | null | undefined,
+  now = new Date(),
+) {
+  if (!session) return false;
+  const remaining = session.expiresAt.getTime() - now.getTime();
+  return remaining > 0 && remaining < SESSION_RENEW_THRESHOLD_SECONDS * 1_000;
 }
 
-export function createSessionManager(secretKey: string) {
-  validateSessionSecret(secretKey);
-  const key = new TextEncoder().encode(secretKey);
-
-  return {
-    async create() {
-      return new SignJWT({})
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuer(SESSION_ISSUER)
-        .setAudience(SESSION_AUDIENCE)
-        .setSubject(SESSION_SUBJECT)
-        .setJti(randomUUID())
-        .setIssuedAt()
-        .setExpirationTime(`${SESSION_DURATION_SECONDS}s`)
-        .sign(key);
-    },
-
-    async verify(input: string) {
-      const { payload } = await jwtVerify(input, key, {
-        algorithms: ['HS256'],
-        issuer: SESSION_ISSUER,
-        audience: SESSION_AUDIENCE,
-        subject: SESSION_SUBJECT,
-      });
-      return payload;
-    },
-
-    async getSession(cookieStore: CookieStore) {
-      const session = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-      if (!session) return null;
-      try {
-        return await this.verify(session);
-      } catch {
-        return null;
-      }
-    },
-  };
-}
-
-let runtimeManager: ReturnType<typeof createSessionManager> | undefined;
-
-function getRuntimeManager() {
-  if (runtimeManager) return runtimeManager;
-  const secret = process.env.AUTH_PASSWORD;
-  if (!secret) throw new Error('AUTH_PASSWORD is required');
-  runtimeManager = createSessionManager(secret);
-  return runtimeManager;
-}
-
-export async function createSession() {
-  return getRuntimeManager().create();
-}
-
-export async function getSession() {
-  return getRuntimeManager().getSession(await cookies());
-}
-
-export async function requireSession() {
-  const session = await getSession();
-  if (!session) throw new UnauthorizedError();
-  return session;
+export function sessionExpiry(now = new Date()) {
+  return new Date(now.getTime() + SESSION_DURATION_SECONDS * 1_000);
 }
 
 export function sessionCookieOptions(expires: Date) {
@@ -117,6 +66,63 @@ export function sessionCookieOptions(expires: Date) {
   };
 }
 
-export function sessionExpiry(now = new Date()) {
-  return new Date(now.getTime() + SESSION_DURATION_SECONDS * 1_000);
+/** Returns the cookie value; the secret in it is stored nowhere else. */
+export async function createSession(
+  database: AppDatabase,
+  dataKey: Buffer,
+  now = new Date(),
+) {
+  const expiresAt = sessionExpiry(now);
+  const { id, secret } = await createCredentialSlot(
+    database,
+    dataKey,
+    'session',
+    { expiresAt },
+  );
+  return { token: formatCredential('session', id, secret), expiresAt };
+}
+
+export async function readSession(
+  database: AppDatabase,
+  token: string | null | undefined,
+  now = new Date(),
+): Promise<Session | null> {
+  const credential = await verifyCredential(database, 'session', token, now);
+  if (!credential?.expiresAt) return null;
+  return { id: credential.slotId, expiresAt: credential.expiresAt };
+}
+
+export async function getSession(database: AppDatabase = db) {
+  return readSession(
+    database,
+    (await cookies()).get(SESSION_COOKIE_NAME)?.value,
+  );
+}
+
+export async function requireSession(database: AppDatabase = db) {
+  const session = await getSession(database);
+  if (!session) throw new UnauthorizedError();
+  return session;
+}
+
+/** Slides the expiry forward; the cookie keeps the same value. */
+export async function renewSession(
+  database: AppDatabase,
+  session: Session,
+  now = new Date(),
+) {
+  const expiresAt = sessionExpiry(now);
+  await updateCredentialSlot(database, session.id, { expiresAt });
+  forgetCredentials(database, [session.id]);
+  return expiresAt;
+}
+
+export async function destroySession(
+  database: AppDatabase,
+  token: string | null | undefined,
+) {
+  const session = await readSession(database, token);
+  if (!session) return;
+  await deleteCredentialSlot(database, 'session', session.id);
+  forgetCredentials(database, [session.id]);
 }

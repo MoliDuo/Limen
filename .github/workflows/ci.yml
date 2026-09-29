@@ -18,6 +18,5 @@ jobs:
       - run: npm run check
       - run: npm run build
         env:
-          AUTH_PASSWORD: ci-placeholder-not-used-during-build
           DATABASE_URL: postgresql://test:test@localhost:5432/limen_ci
       - run: npm audit --audit-level=moderate

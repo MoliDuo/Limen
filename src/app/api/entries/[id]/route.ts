@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db, type AppDatabase } from '@/lib/db';
 import { entries } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
-import { hasValidBearerToken } from '@/lib/auth/security';
+import { authorizeApiRequest } from '@/lib/auth/security';
 import { findActiveEntry } from '@/lib/db/entries-repo';
 import { activeEntries } from '@/lib/db/entry-scope';
 import { serializeApiEntry } from '@/lib/api/entry-serializer';
@@ -12,7 +12,7 @@ export const preferredRegion = 'sin1';
 
 type RouteDeps = {
   db: AppDatabase;
-  authorizeRequest?: (request: Request) => boolean;
+  authorizeRequest?: (request: Request) => Promise<boolean> | boolean;
   now?: () => Date;
 };
 
@@ -20,12 +20,12 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export function createEntryDetailRouteHandlers({
   db: database,
-  authorizeRequest = hasValidBearerToken,
+  authorizeRequest = (request) => authorizeApiRequest(request, database),
   now = () => new Date(),
 }: RouteDeps) {
   return {
     async GET(request: Request, { params }: RouteContext) {
-      if (!authorizeRequest(request)) {
+      if (!(await authorizeRequest(request))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
       const { id } = await params;
@@ -54,7 +54,7 @@ export function createEntryDetailRouteHandlers({
      * recycle bin makes.
      */
     async DELETE(request: Request, { params }: RouteContext) {
-      if (!authorizeRequest(request)) {
+      if (!(await authorizeRequest(request))) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
       const { id } = await params;

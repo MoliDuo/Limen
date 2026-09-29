@@ -6,6 +6,15 @@ import { SettingsForm } from '@/components/SettingsForm';
 import { messages } from '@/lib/messages';
 import { loadWritingStats } from '@/lib/stats-data';
 import { formatDateInTimeZone } from '@/lib/entry-date';
+import { listApiTokens } from '@/lib/crypto/key-slots';
+
+function formatTimestamp(date: Date, timeZone: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
 
 export const metadata: Metadata = { title: '设置' };
 
@@ -17,15 +26,24 @@ export default async function SettingsPage({
 }: {
   searchParams: Promise<{ export?: string }>;
 }) {
-  const [settings, availableTags, stats, query] = await Promise.all([
+  const [settings, availableTags, stats, tokens, query] = await Promise.all([
     getSettings(),
     listActiveTagNames(db),
     loadWritingStats(
       db,
       formatDateInTimeZone(new Date(), (await getSettings()).timeZone),
     ),
+    listApiTokens(db),
     searchParams,
   ]);
+  const apiTokens = tokens.map((token) => ({
+    id: token.id,
+    label: token.label ?? '未命名',
+    createdAt: formatTimestamp(token.createdAt, settings.timeZone),
+    lastUsedAt: token.lastUsedAt
+      ? formatTimestamp(token.lastUsedAt, settings.timeZone)
+      : null,
+  }));
   const exportMessage =
     EXPORT_MESSAGES[query.export as keyof typeof EXPORT_MESSAGES];
 
@@ -44,6 +62,7 @@ export default async function SettingsPage({
         settings={settings}
         availableTags={availableTags}
         stats={stats}
+        apiTokens={apiTokens}
       />
     </div>
   );

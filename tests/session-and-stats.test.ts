@@ -16,7 +16,10 @@ import { seedEntry } from './helpers/test-entries';
 const NOW = new Date('2026-09-21T12:00:00.000Z');
 
 function expiringIn(seconds: number) {
-  return { exp: Math.floor(NOW.getTime() / 1_000) + seconds };
+  return {
+    id: 'session',
+    expiresAt: new Date(NOW.getTime() + seconds * 1_000),
+  };
 }
 
 test('a session is renewed only in its final stretch', () => {
@@ -37,15 +40,15 @@ test('a session is renewed only in its final stretch', () => {
   assert.equal(shouldRenewSession(expiringIn(0), NOW), false);
   assert.equal(shouldRenewSession(expiringIn(-10), NOW), false);
   assert.equal(shouldRenewSession(null, NOW), false);
-  assert.equal(shouldRenewSession({}, NOW), false);
 });
 
-test('the proxy re-signs the cookie when a session is nearly out', () => {
+test('the proxy extends the cookie when a session is nearly out', () => {
   const source = readFileSync(
     new URL('../src/proxy.ts', import.meta.url),
     'utf8',
   );
   assert.match(source, /shouldRenewSession\(session\)/);
+  assert.match(source, /renewSession\(db, session\)/);
   assert.match(source, /response\.cookies\.set\(/);
 });
 
@@ -150,7 +153,7 @@ test('page reads schedule recovery instead of awaiting it', () => {
   // A write in front of the first byte costs a Neon round-trip on a driver
   // with no connection reuse.
   for (const [file, pattern] of [
-    ['src/lib/dashboard-data.ts', /scheduleRecovery\(database\)/],
+    ['src/lib/dashboard-data.ts', /scheduleRecovery\(database, cipher\)/],
     [
       'src/app/(dashboard)/entries/[id]/page.tsx',
       /after\(\(\) => recoverStalePendingEntriesThrottled\(\)\)/,

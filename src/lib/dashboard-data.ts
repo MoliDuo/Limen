@@ -26,10 +26,10 @@ export const DASHBOARD_PREVIEW_LENGTH = 280;
  * Recovery is a write, and this is a read path, so it must not sit in front of
  * the response. after() runs it once the page has been sent.
  */
-function scheduleRecovery(database: AppDatabase) {
+function scheduleRecovery(database: AppDatabase, cipher: FieldCipher) {
   try {
     after(() => recoverStalePendingEntriesThrottled(database));
-    after(() => encryptLegacyRowsInBackground(database));
+    after(() => encryptLegacyRowsInBackground(database, cipher));
   } catch {
     // after() is only available inside a request; tests call these loaders
     // directly, where skipping the sweep is correct.
@@ -203,9 +203,9 @@ export async function loadDashboardEntriesPage(
   { q, tag, cursor, limit = 20 }: EntryFilters & { limit?: number },
   database: AppDatabase = db,
 ): Promise<DashboardEntriesPage> {
-  scheduleRecovery(database);
-  const query = normalizeSearchQuery(q);
   const cipher = await getFieldCipher(database);
+  scheduleRecovery(database, cipher);
+  const query = normalizeSearchQuery(q);
 
   const decryptRow = (row: {
     id: string;
@@ -298,8 +298,8 @@ export async function loadApiEntriesPage(
   },
   database: AppDatabase = db,
 ) {
-  scheduleRecovery(database);
   const cipher = await getFieldCipher(database);
+  scheduleRecovery(database, cipher);
   const rows = await database
     .select({
       id: entries.id,

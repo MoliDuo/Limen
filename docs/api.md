@@ -2,17 +2,17 @@
 
 Limen 提供两类 API：
 
-- **Bearer Token API**: 用于快捷指令、脚本等外部客户端。所有端点需在 `Authorization` 请求头中携带 `AUTH_PASSWORD`。
+- **Bearer Token API**: 用于快捷指令、脚本等外部客户端。所有端点需在 `Authorization` 请求头中携带在设置页生成的 API 令牌。
 - **Session API**: 用于 Web 前端，基于浏览器会话。不需要携带 Token。
 
 ## 认证
 
 ### Bearer Token
 
-所有条目 API 端点均要求 `Authorization: Bearer <password>` 请求头，其中 `<password>` 与 Web 登录使用的明文 `AUTH_PASSWORD` 完全相同。
+所有条目 API 端点均要求 `Authorization: Bearer <token>` 请求头。令牌在 **设置 → API 令牌** 中生成，形如 `limen_<id>.<secret>`，只在生成时显示一次。
 
 ```bash
-curl -H "Authorization: Bearer <AUTH_PASSWORD>" <url>
+curl -H "Authorization: Bearer limen_xxxx.yyyy" <url>
 ```
 
 如果 Token 缺失或无效，返回 `401`：
@@ -21,7 +21,7 @@ curl -H "Authorization: Bearer <AUTH_PASSWORD>" <url>
 { "error": "Unauthorized" }
 ```
 
-服务端只需配置一个明文 `AUTH_PASSWORD` 环境变量，不使用密码哈希、独立 API Token 或独立 Session Secret。
+主密码不能用作 Bearer 令牌。每个令牌都能解开日记的数据密钥，但彼此独立，可以单独撤销；撤销后最多一分钟内在所有实例上失效。
 
 ## 条目 API
 
@@ -260,12 +260,12 @@ JSON 导出的 `schemaVersion` 为 `2`。与 `1` 的区别是 `entries[].tags` �
 使用 Bearer Token 从快捷指令等外部客户端调用时：
 
 - 使用 `POST` 方法和 `Content-Type: application/json`
-- 使用 `Authorization: Bearer <AUTH_PASSWORD>`
+- 使用 `Authorization: Bearer <API 令牌>`
 - 只在响应 JSON 的 `status` 等于 `created` 且 `id` 非空时提示成功
 - 同时检查 HTTP 状态码必须为 `201`；不要以“URL 的内容有任何值”判断成功，因为错误响应也有 JSON 内容
 - 在确认成功前保留原始正文；失败时显示状态码和服务端 `error`，不要清空输入或剪贴板
 - 如需二次确认，可使用返回的 `id` 请求 `GET /api/entries/<id>`
-- Token 就是 `AUTH_PASSWORD` 本身，请存入密码管理器；轮换方式见 [部署指南](deployment.md#凭证轮换)
+- 为快捷指令单独生成一个令牌；轮换方式见 [部署指南](deployment.md#凭证轮换)
 
 ## 通用错误
 

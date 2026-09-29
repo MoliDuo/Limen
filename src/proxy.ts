@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { db } from '@/lib/db';
 import {
-  createSession,
-  getSession,
+  readSession,
+  renewSession,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
-  sessionExpiry,
   shouldRenewSession,
 } from '@/lib/auth/session';
 import { loginPath, stripLegacyLocalePath } from '@/lib/pathname';
@@ -65,7 +65,8 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   if (shouldBypassProxy(pathname)) return NextResponse.next();
 
-  const session = await getSession();
+  const cookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  const session = await readSession(db, cookie);
   const decision = evaluateProxyRequest({
     pathname,
     hasSession: Boolean(session),
@@ -84,12 +85,20 @@ export async function proxy(request: NextRequest) {
   } else {
     response = NextResponse.next({ request: { headers: requestHeaders } });
   }
-  // Sliding expiry: an active reader never hits the 7-day wall.
-  if (shouldRenewSession(session)) {
+  if (session && cookie && shouldRenewSession(session)) {
+    // Sliding expiry: an active reader never hits the 7-day wall.
     response.cookies.set(
       SESSION_COOKIE_NAME,
-      await createSession(),
-      sessionCookieOptions(sessionExpiry()),
+      cookie,
+      sessionCookieOptions(await renewSession(db, session)),
+    );
+  } else if (!session && cookie) {
+    // Signed out elsewhere, expired or tampered: drop it so the browser stops
+    // sending it.
+    response.cookies.set(
+      SESSION_COOKIE_NAME,
+      '',
+      sessionCookieOptions(new Date(0)),
     );
   }
 

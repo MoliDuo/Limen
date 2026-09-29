@@ -64,6 +64,13 @@
       "when": 1790675824019,
       "tag": "0009_field_encryption",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790678378083,
+      "tag": "0010_credential_slots",
+      "breakpoints": true
     }
   ]
 }

@@ -159,18 +159,38 @@ export const settings = pgTable(
 );
 
 /**
- * The data key, wrapped once per password that may open it (LUKS-style slots).
- * Every slot wraps the same key, so changing the password adds a slot and
- * removes the old one without re-encrypting a single entry. See
+ * Everything that can open the data key, each holding its own wrapped copy
+ * (LUKS-style slots). Every slot wraps the same key, so changing the password,
+ * signing in or revoking a token never re-encrypts an entry. See
  * docs/encryption.md for the exact format.
+ *
+ * - password: scrypt over the owner's password. Opening it is the login check.
+ * - session: one per signed-in browser; the secret lives only in the cookie.
+ * - api_token: one per API client; the secret lives only in the client.
  */
-export const encryptionKeySlots = pgTable('encryption_key_slots', {
-  id: text('id').primaryKey(),
-  kdf: text('kdf').notNull(),
-  kdfParams: text('kdf_params').notNull(),
-  salt: text('salt').notNull(),
-  wrappedKey: text('wrapped_key').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-    .notNull()
-    .defaultNow(),
-});
+export const encryptionKeySlots = pgTable(
+  'encryption_key_slots',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').notNull().default('password'),
+    kdf: text('kdf').notNull(),
+    kdfParams: text('kdf_params').notNull(),
+    salt: text('salt').notNull(),
+    wrappedKey: text('wrapped_key').notNull(),
+    label: text('label'),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+    lastUsedAt: timestamp('last_used_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      'encryption_key_slots_kind_check',
+      sql`${table.kind} IN ('password', 'session', 'api_token')`,
+    ),
+  ],
+);

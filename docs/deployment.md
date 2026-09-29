@@ -43,11 +43,12 @@ Vercel 的 Build and Output Settings 使用以下默认设置即可：
 
 在 Vercel 项目设置中配置以下环境变量：
 
-| 变量            | 必须 | 说明                                                           |
-| --------------- | ---- | -------------------------------------------------------------- |
-| `DATABASE_URL`  | 是   | Neon Postgres 连接串，推荐通过 Vercel Marketplace 连接 Neon    |
-| `AUTH_PASSWORD` | 是   | Web 登录和 Bearer API 共用的明文密码，也是日记内容的加密主密码 |
-| `AI_API_KEY`    | 是   | OpenAI API Key                                                 |
+| 变量           | 必须 | 说明                                                        |
+| -------------- | ---- | ----------------------------------------------------------- |
+| `DATABASE_URL` | 是   | Neon Postgres 连接串，推荐通过 Vercel Marketplace 连接 Neon |
+| `AI_API_KEY`   | 是   | OpenAI API Key                                              |
+
+主密码不放在环境变量里，而是以加密钥匙槽的形式存在数据库中，见 [encryption.md](encryption.md)。
 
 **可选变量:**
 
@@ -63,44 +64,55 @@ Vercel 的 Build and Output Settings 使用以下默认设置即可：
 
 1. 在 Neon 新加坡区域创建数据库，并通过 Vercel Marketplace 连接或手动配置 `DATABASE_URL`
 2. 对目标数据库执行 `npm run db:migrate`
-3. 将同一个明文 `AUTH_PASSWORD` 写入 Vercel 环境变量，并同步到 Web 登录和所有 API 客户端
+3. 在本地执行 `npm run crypto -- init`，设置主密码（至少 12 位，存进密码管理器）
 4. 配置 `AI_API_KEY`、`AI_BASE_URL`、`AI_MODEL`
 5. 部署应用
-6. 验证部署（见下文）
+6. 登录后在 **设置 → API 令牌** 里为每个外部客户端（如 iOS 快捷指令）生成令牌
+7. 验证部署（见下文）
 
 ## 凭证轮换
 
-`AUTH_PASSWORD` 同时是日记内容的加密主密码，**不能直接修改**，否则新密码解不开数据密钥，应用会报错。请按 [encryption.md](encryption.md#更换主密码) 的三步流程操作：先用 `npm run crypto -- add-password` 添加新密码，再修改 Vercel 环境变量并重新部署，最后执行 `remove-other-slots`。轮换会同时注销现有浏览器会话并使旧 Bearer 凭证失效。
+- **主密码**：在 **设置 → 主密码** 里修改。其他设备会被退出，API 令牌不受影响。详见 [encryption.md](encryption.md#更换主密码)。
+- **API 令牌**：在 **设置 → API 令牌** 里生成新令牌、更新客户端，再撤销旧令牌。
+- **让所有设备退出**：`npm run crypto -- revoke-sessions`。
 
-升级旧部署时，删除 `AUTH_PASSWORD_HASH`、`API_TOKEN_HASH` 和 `SESSION_SECRET`，避免继续维护互相不同步的凭证。
+### 从 `AUTH_PASSWORD` 版本升级
+
+迁移 `0010` 让钥匙槽同时承担会话和 API 令牌，`AUTH_PASSWORD` 环境变量不再使用：
+
+1. 部署新版本。所有浏览器需要重新登录一次，旧的会话 cookie 会失效；
+2. 用原来的主密码登录，确认能正常读写；
+3. 在 Vercel 项目设置里删除 `AUTH_PASSWORD`（以及更早版本遗留的 `AUTH_PASSWORD_HASH`、`API_TOKEN_HASH`、`SESSION_SECRET`），不需要重新部署；
+4. 在 **设置 → API 令牌** 生成令牌，替换快捷指令里的 `Bearer` 值。替换之前快捷指令会收到 `401`。
 
 ## 部署验证
 
 部署后验证以下功能是否正常：
 
-1. **登录**: 使用已配置密码登录 Web 界面
+1. **登录**: 使用主密码登录 Web 界面
 2. **创建条目**: 在 Web 界面或通过 API 创建新条目
 3. **搜索**: 搜索创建的条目
 4. **AI 回写**: 等待 AI 处理完成，确认条目生成标题、摘要和标签
 5. **删除条目**: 删除条目确认
 6. **退出登录**: 退出后会话应失效
+7. **API 令牌**: 用设置页生成的令牌调用 API，撤销后应返回 `401`
 
 ### API 验证示例
 
 ```bash
 # 创建条目
 curl -X POST https://your-app.vercel.app/api/entries \
-  -H "Authorization: Bearer <AUTH_PASSWORD>" \
+  -H "Authorization: Bearer <API 令牌>" \
   -H "Content-Type: application/json" \
   -d '{"content":"测试条目内容","createdAt":"2026-07-24"}'
 
 # 列条目
 curl "https://your-app.vercel.app/api/entries?limit=5" \
-  -H "Authorization: Bearer <AUTH_PASSWORD>"
+  -H "Authorization: Bearer <API 令牌>"
 
 # 获取详情
 curl "https://your-app.vercel.app/api/entries/<id>" \
-  -H "Authorization: Bearer <AUTH_PASSWORD>"
+  -H "Authorization: Bearer <API 令牌>"
 ```
 
 ## 运行时说明
@@ -123,7 +135,8 @@ curl "https://your-app.vercel.app/api/entries/<id>" \
 ## 安全注意事项
 
 - 本应用为**单用户设计**，API 无用户层级权限控制
-- `AUTH_PASSWORD` 是明文主凭证，只应存放在 Vercel 环境变量、密码管理器和受信任的 API 客户端中
-- `AUTH_PASSWORD` 也是加密主密码：数据库泄露后，攻击者可以离线暴力猜测它，因此必须足够长、足够随机；一旦遗忘，日记就无法解密
+- 主密码只应存放在密码管理器中；服务器上没有它的副本，一旦遗忘，日记就无法解密
+- 主密码也是加密密钥：数据库泄露后，攻击者可以离线暴力猜测它，因此必须足够长、足够随机
+- API 令牌能读写全部日记，只放在受信任的客户端中；每个客户端单独一个，不用就撤销
+- 登录限流按 IP 的 SHA-256 记录，拿到数据库的人可以反推出最近 7 天尝试登录的 IP
 - 部署后应验证安全响应头和 nonce CSP 是否正常工作
-- 轮换 `AUTH_PASSWORD` 后必须同时验证 Web 登录和 API 写入
