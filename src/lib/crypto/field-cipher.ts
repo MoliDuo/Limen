@@ -47,10 +47,6 @@ export function openBytes(key: Buffer, sealed: Buffer, aad: string) {
   return Buffer.concat([decipher.update(body), decipher.final()]);
 }
 
-export function isEncrypted(value: string) {
-  return value.startsWith(CIPHERTEXT_PREFIX);
-}
-
 /**
  * Binds a ciphertext to its row and column, so a database writer cannot move
  * one entry's text into another entry or turn a summary into a title.
@@ -84,13 +80,11 @@ export class FieldCipher {
     return CIPHERTEXT_PREFIX + sealed.toString('base64url');
   }
 
-  /**
-   * Values without the prefix are rows written before encryption existed and
-   * are returned as they are, so reads keep working while the backfill runs.
-   * A prefixed value that fails to open is an error, never a passthrough.
-   */
+  /** Anything that is not ciphertext this key opens is an error. */
   decrypt(value: string, aad: string) {
-    if (!isEncrypted(value)) return value;
+    if (!value.startsWith(CIPHERTEXT_PREFIX)) {
+      throw new Error('Expected an encrypted value.');
+    }
     const sealed = Buffer.from(
       value.slice(CIPHERTEXT_PREFIX.length),
       'base64url',

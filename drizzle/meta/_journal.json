@@ -71,6 +71,13 @@
       "when": 1790678378083,
       "tag": "0010_credential_slots",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790686100019,
+      "tag": "0011_tag_hmac_required",
+      "breakpoints": true
     }
   ]
 }

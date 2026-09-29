@@ -76,15 +76,6 @@ Vercel 的 Build and Output Settings 使用以下默认设置即可：
 - **API 令牌**：在 **设置 → API 令牌** 里生成新令牌、更新客户端，再撤销旧令牌。
 - **让所有设备退出**：`npm run crypto -- revoke-sessions`。
 
-### 从 `AUTH_PASSWORD` 版本升级
-
-迁移 `0010` 让钥匙槽同时承担会话和 API 令牌，`AUTH_PASSWORD` 环境变量不再使用：
-
-1. 部署新版本。所有浏览器需要重新登录一次，旧的会话 cookie 会失效；
-2. 用原来的主密码登录，确认能正常读写；
-3. 在 Vercel 项目设置里删除 `AUTH_PASSWORD`（以及更早版本遗留的 `AUTH_PASSWORD_HASH`、`API_TOKEN_HASH`、`SESSION_SECRET`），不需要重新部署；
-4. 在 **设置 → API 令牌** 生成令牌，替换快捷指令里的 `Bearer` 值。替换之前快捷指令会收到 `401`。
-
 ## 部署验证
 
 部署后验证以下功能是否正常：
@@ -121,16 +112,6 @@ curl "https://your-app.vercel.app/api/entries/<id>" \
 - **超时**: AI 后台任务最长运行 60 秒 (`maxDuration = 60`)
 - **迁移**: 数据库迁移不自动执行，需手动运行 `npm run db:migrate`
 - **构建**: Vercel Framework Preset 为 `Next.js`，Build Command 使用默认值
-
-## 内容加密上线
-
-迁移 `0009` 新增 `encryption_key_slots` 表，改造 `tags` 表，并删除早先推迟的旧列 `entries.tags`。加密之后，旧版本代码读不懂新写入的密文，所以**这次部署无法靠重新部署旧版本回滚**：
-
-1. 部署前在 Neon 为生产库开一个 branch，作为回滚点；
-2. 部署后打开时间线，旧数据会在后台逐步加密；也可以在本地执行 `npm run crypto -- encrypt-existing` 一次完成，再用 `npm run crypto -- status` 确认明文已经清零；
-3. 确认一切正常后，删除这个 branch 和其他旧 branch，因为它们里面仍有明文。
-
-威胁模型、存储格式和离线解密方法见 [encryption.md](encryption.md)。
 
 ## 安全注意事项
 

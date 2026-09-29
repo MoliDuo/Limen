@@ -1,16 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  createLoginAttemptKey,
-  readBearerToken,
-  secureStringEqual,
-} from '@/lib/auth/security';
-
-test('secureStringEqual compares strings only', () => {
-  assert.equal(secureStringEqual('same', 'same'), true);
-  assert.equal(secureStringEqual('short', 'longer'), false);
-  assert.equal(secureStringEqual(undefined, 'x'), false);
-});
+import { createLoginAttemptKey, readBearerToken } from '@/lib/auth/security';
 
 test('Bearer tokens are read from the Authorization header', () => {
   assert.equal(readBearerToken('Bearer limen_a.b'), 'limen_a.b');

@@ -1,0 +1,1 @@
+ALTER TABLE "tags" ALTER COLUMN "name_hmac" SET NOT NULL;

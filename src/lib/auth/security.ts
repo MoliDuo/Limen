@@ -1,17 +1,7 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { db, type AppDatabase } from '@/lib/db';
 import { updateCredentialSlot } from '@/lib/crypto/key-slots';
 import { verifyCredential } from '@/lib/auth/credentials';
-
-export function secureStringEqual(left: unknown, right: unknown): boolean {
-  if (typeof left !== 'string' || typeof right !== 'string') return false;
-  const leftBuffer = Buffer.from(left, 'utf8');
-  const rightBuffer = Buffer.from(right, 'utf8');
-  return (
-    leftBuffer.length === rightBuffer.length &&
-    timingSafeEqual(leftBuffer, rightBuffer)
-  );
-}
 
 export function readBearerToken(header: string | null) {
   return header?.startsWith('Bearer ') ? header.slice(7).trim() : null;

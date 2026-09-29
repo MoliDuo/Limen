@@ -6,12 +6,11 @@ import { getFieldCipher } from '@/lib/crypto/cipher';
 type SeedEntryOptions = Partial<Omit<typeof entries.$inferInsert, 'tags'>> & {
   /** Written to entry_tags, bypassing tags_locked_at. */
   tags?: string[];
-  plaintext?: boolean;
 };
 
 export async function seedEntry(db: AppDatabase, value: SeedEntryOptions = {}) {
   const now = new Date();
-  const { tags, plaintext, ...columns } = value;
+  const { tags, ...columns } = value;
   const entry = {
     id: columns.id ?? 'entry-1',
     content: columns.content ?? 'Seeded entry content',
@@ -25,19 +24,14 @@ export async function seedEntry(db: AppDatabase, value: SeedEntryOptions = {}) {
     updatedAt: columns.updatedAt ?? now,
   } satisfies typeof entries.$inferInsert;
 
-  // Stored the way the app stores it; `plaintext: true` seeds a row from
-  // before encryption existed.
-  const cipher = plaintext ? null : await getFieldCipher(db);
-  await db.insert(entries).values(
-    cipher
-      ? {
-          ...entry,
-          content: cipher.encryptEntryField(entry.id, 'content', entry.content),
-          title: cipher.encryptEntryField(entry.id, 'title', entry.title),
-          summary: cipher.encryptEntryField(entry.id, 'summary', entry.summary),
-        }
-      : entry,
-  );
+  // Stored the way the app stores it.
+  const cipher = await getFieldCipher(db);
+  await db.insert(entries).values({
+    ...entry,
+    content: cipher.encryptEntryField(entry.id, 'content', entry.content),
+    title: cipher.encryptEntryField(entry.id, 'title', entry.title),
+    summary: cipher.encryptEntryField(entry.id, 'summary', entry.summary),
+  });
   if (tags && tags.length > 0) {
     await syncEntryTags(db, entry.id, tags, { respectLock: false });
   }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb } from './helpers/test-db';
-import { entries } from '@/lib/db/schema';
+import { seedEntry } from './helpers/test-entries';
 import {
   jsonExportChunks,
   markdownExportChunks,
@@ -55,7 +55,7 @@ test('date filtering is inclusive and ordering is stable', async () => {
       ['a', '2026-02-01', 2],
       ['c', '2026-02-02', 1],
     ] as const) {
-      await fixture.db.insert(entries).values({
+      await seedEntry(fixture.db, {
         id,
         content: id,
         createdAt: new Date(`${day}T00:00:00Z`),
@@ -83,7 +83,6 @@ test('tag filtering uses OR semantics and runs in SQL', async () => {
   const fixture = await createTestDb();
   try {
     const { syncEntryTags } = await import('@/lib/db/entry-tags');
-    const { seedEntry } = await import('./helpers/test-entries');
     for (const [id, names] of [
       ['alpha-beta', ['alpha', 'beta']],
       ['gamma', ['gamma']],

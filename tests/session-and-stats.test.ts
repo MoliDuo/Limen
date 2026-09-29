@@ -153,7 +153,7 @@ test('page reads schedule recovery instead of awaiting it', () => {
   // A write in front of the first byte costs a Neon round-trip on a driver
   // with no connection reuse.
   for (const [file, pattern] of [
-    ['src/lib/dashboard-data.ts', /scheduleRecovery\(database, cipher\)/],
+    ['src/lib/dashboard-data.ts', /scheduleRecovery\(database\)/],
     [
       'src/app/(dashboard)/entries/[id]/page.tsx',
       /after\(\(\) => recoverStalePendingEntriesThrottled\(\)\)/,

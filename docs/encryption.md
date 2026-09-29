@@ -67,7 +67,7 @@
 
 `tags.name_hmac` = base64url(`HMAC-SHA256(HKDF(数据密钥, info="limen/tag-index/v1"), 标签名)`)，用于唯一性约束和按标签筛选。
 
-不带 `enc:v1:` 前缀的值是加密上线之前写入的旧数据，按原样读取，并由后台逐步加密（见下文）。
+加密字段只接受 `enc:v1:` 开头的密文；读到任何别的值都会直接报错，不会当作明文放行。
 
 ### 离线解密示例
 
@@ -110,17 +110,6 @@ for (const e of await sql`select id, created_at, content from entries`) {
 
 日常备份不需要这样做：设置页的导出功能输出的就是解密后的 Markdown 或 JSON。
 
-## 旧数据的加密
-
-加密上线之前写入的行会自动加密：每次打开时间线，后台最多花 20 秒处理一批，每分钟至多一次。全部处理完之后就不再运行。也可以手动一次性完成：
-
-```bash
-npm run crypto -- status             # 还剩多少明文
-npm run crypto -- encrypt-existing   # 立即全部加密
-```
-
-每一步都可以中断、可以重跑，也不会覆盖同时发生的编辑。
-
 ## 更换主密码
 
 在 **设置 → 主密码** 里修改：输入当前密码和新密码（至少 12 位）即可。修改后：
@@ -143,8 +132,6 @@ npm run crypto -- revoke-sessions   # 只让所有设备退出登录
 ```bash
 npm run crypto -- init
 ```
-
-从旧版本升级的数据库已经有密码槽（上一版用 `AUTH_PASSWORD` 自动创建的），不需要这一步。如果升级时库里还没有任何密码槽、而 Vercel 上的 `AUTH_PASSWORD` 仍在，第一次用它登录就会自动建好密码槽；之后就可以删掉这个环境变量。
 
 ## 残留的明文
 

@@ -72,13 +72,12 @@ export const entries = pgTable(
 
 // `name` holds the encrypted tag name and `name_hmac` is the business key: a
 // keyed hash of the plaintext name, so uniqueness and tag filters still run in
-// SQL without the database ever seeing the name. `name_hmac` is null only for
-// rows written before encryption, until lib/crypto/backfill.ts reaches them.
-// The integer id never leaves the database.
+// SQL without the database ever seeing the name. The integer id never leaves
+// the database.
 export const tags = pgTable('tags', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
-  nameHmac: text('name_hmac').unique(),
+  nameHmac: text('name_hmac').notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .defaultNow(),

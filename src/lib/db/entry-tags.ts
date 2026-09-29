@@ -68,7 +68,7 @@ export async function loadEntryTagsMap(
     .where(inArray(entryTags.entryId, ids));
   for (const row of rows)
     map.get(row.entryId)?.push(cipher.decryptTagName(row.name));
-  for (const [id, names] of map) map.set(id, sortTagNames(new Set(names)));
+  for (const [id, names] of map) map.set(id, sortTagNames(names));
   return map;
 }
 
@@ -90,18 +90,12 @@ export async function listActiveTagNames(
     // Without this a trashed entry's tags keep feeding the AI prompt and keep
     // showing up as export checkboxes that can never match anything.
     .where(activeEntries());
-  // The Set folds a not-yet-backfilled plaintext row into its encrypted twin.
-  return sortTagNames(
-    new Set(rows.map((row) => cipher.decryptTagName(row.name))),
-  );
+  return sortTagNames(rows.map((row) => cipher.decryptTagName(row.name)));
 }
 
 /**
  * "This entry carries at least one of these tags." Uses the tag_id index.
- *
- * Matches on the keyed hash; the plaintext branch only covers tag rows the
- * encryption backfill has not reached yet, and the names it compares are
- * query parameters, never stored.
+ * Matches on the keyed hash, since the stored names are ciphertext.
  */
 export function hasAnyTag(cipher: FieldCipher, names: string[]): SQL {
   if (names.length === 0) return sql`false`;
@@ -110,10 +104,7 @@ export function hasAnyTag(cipher: FieldCipher, names: string[]): SQL {
     SELECT 1 FROM entry_tags et
     JOIN tags t ON t.id = et.tag_id
     WHERE et.entry_id = "entries"."id"
-      AND (
-        t.name_hmac = ANY(${sql.param(hashes)})
-        OR (t.name_hmac IS NULL AND t.name = ANY(${sql.param(names)}))
-      )
+      AND t.name_hmac = ANY(${sql.param(hashes)})
   )`;
 }
 

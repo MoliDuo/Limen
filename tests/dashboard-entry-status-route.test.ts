@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AIStatus } from '@/lib/ai/polling';
-import { entries } from '@/lib/db/schema';
 import { createTestDb } from './helpers/test-db';
+import { seedEntry } from './helpers/test-entries';
 
 async function requestStatus(status: AIStatus | undefined, authorized = true) {
   const { createEntryStatusHandler } =
@@ -93,17 +93,15 @@ test('batch status endpoint authenticates and validates ID lists', async () => {
 test('batch status endpoint returns requested fields and omits missing IDs', async () => {
   const fixture = await createTestDb();
   try {
-    await fixture.db.insert(entries).values({
+    await seedEntry(fixture.db, {
       id: 'existing',
       content: 'content',
       title: 'Title',
       summary: 'Summary',
       aiStatus: 'done',
       createdAt: new Date('2026-08-19T00:00:00.000Z'),
-      updatedAt: new Date(),
+      tags: ['one'],
     });
-    const { syncEntryTags } = await import('@/lib/db/entry-tags');
-    await syncEntryTags(fixture.db, 'existing', ['one']);
     const { createBatchEntryStatusHandler } =
       await import('@/app/api/dashboard/entries/status/route');
     const POST = createBatchEntryStatusHandler({

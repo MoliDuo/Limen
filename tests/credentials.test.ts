@@ -300,27 +300,13 @@ test('repeated wrong current passwords are throttled', async () => {
   assert.equal(blocked.ok ? 0 : blocked.retryAfterSeconds, 900);
 });
 
-test('login accepts the old AUTH_PASSWORD only to set up a database with no password', async () => {
+test('login opens the password slot, or asks for setup when there is none', async () => {
   const empty = await freshDb();
-  assert.equal(
-    await unlockForLogin('anything', empty, undefined),
-    'uninitialized',
-  );
-  assert.equal(await unlockForLogin('wrong', empty, 'legacy-password'), null);
+  assert.equal(await unlockForLogin('anything', empty), 'uninitialized');
   assert.equal((await countKeySlots(empty)).password, 0);
 
-  const key = await unlockForLogin('legacy-password', empty, 'legacy-password');
-  assert.ok(Buffer.isBuffer(key));
-  assert.equal((await countKeySlots(empty)).password, 1);
-
-  // Once a password slot exists, the variable no longer matters.
   const db = await freshDb();
   await testDataKey(db);
-  assert.equal(
-    await unlockForLogin('legacy-password', db, 'legacy-password'),
-    null,
-  );
-  assert.ok(
-    Buffer.isBuffer(await unlockForLogin(TEST_PASSWORD, db, undefined)),
-  );
+  assert.equal(await unlockForLogin('wrong', db), null);
+  assert.ok(Buffer.isBuffer(await unlockForLogin(TEST_PASSWORD, db)));
 });

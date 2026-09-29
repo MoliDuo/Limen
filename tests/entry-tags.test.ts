@@ -159,8 +159,6 @@ test('parseTagNames tolerates whatever the database returns', () => {
     cipher.encryptTagName('a'),
   ]);
   assert.deepEqual(parseTagNames(cipher, stored), ['a', 'b']);
-  // Rows the encryption backfill has not reached yet.
-  assert.deepEqual(parseTagNames(cipher, '["a","b"]'), ['a', 'b']);
   assert.deepEqual(parseTagNames(cipher, '[]'), []);
   assert.deepEqual(parseTagNames(cipher, null), []);
   assert.deepEqual(parseTagNames(cipher, '{broken'), []);

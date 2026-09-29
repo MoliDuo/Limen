@@ -73,7 +73,7 @@ npm run check
 | `npm run check`        | 顺序执行 format:check + lint + typecheck + test |
 | `npm run db:generate`  | Drizzle 生成迁移文件                            |
 | `npm run db:migrate`   | 执行迁移                                        |
-| `npm run crypto`       | 内容加密维护：状态、加密旧数据、更换主密码      |
+| `npm run crypto`       | 内容加密维护：初始化主密码、查看状态、更换密码  |
 
 ## 详细文档
 

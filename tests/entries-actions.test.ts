@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { createEntryActions } from '@/lib/actions/entries-core';
 import { entries } from '@/lib/db/schema';
 import { createTestDb } from './helpers/test-db';
-import { readStoredEntry } from './helpers/test-entries';
+import { readStoredEntry, seedEntry } from './helpers/test-entries';
 
 function form(content: string, createdAt = '2024-01-03') {
   const data = new FormData();
@@ -115,17 +115,16 @@ test('createEntry marks the record failed when scheduling throws', async () => {
 test('updateEntry keeps existing ai metadata and returns detail navigation', async () => {
   const fixture = await createTestDb();
   try {
-    await fixture.db.insert(entries).values({
+    await seedEntry(fixture.db, {
       id: 'entry-update',
       content: 'Old',
       title: 'Old',
       summary: 'Old',
       aiStatus: 'done',
       createdAt: new Date('2024-01-01'),
+      tags: ['old'],
     });
-    const { loadEntryTagsMap, syncEntryTags } =
-      await import('@/lib/db/entry-tags');
-    await syncEntryTags(fixture.db, 'entry-update', ['old']);
+    const { loadEntryTagsMap } = await import('@/lib/db/entry-tags');
     const actions = createEntryActions({
       db: fixture.db,
       createId: () => 'unused',
@@ -161,7 +160,7 @@ test('updateEntry keeps existing ai metadata and returns detail navigation', asy
 test('a failed ai run after an edit leaves the old title and summary intact', async () => {
   const fixture = await createTestDb();
   try {
-    await fixture.db.insert(entries).values({
+    await seedEntry(fixture.db, {
       id: 'entry-ai-fails',
       content: 'Old body',
       title: 'A good title',
@@ -202,15 +201,17 @@ test('a failed ai run after an edit leaves the old title and summary intact', as
 test('delete and regenerate return structured results', async () => {
   const fixture = await createTestDb();
   try {
-    await fixture.db.insert(entries).values([
-      { id: 'delete-me', content: 'Delete', createdAt: new Date('2024-01-01') },
-      {
-        id: 'regenerate-me',
-        content: 'Regenerate',
-        aiStatus: 'failed',
-        createdAt: new Date('2024-01-02'),
-      },
-    ]);
+    await seedEntry(fixture.db, {
+      id: 'delete-me',
+      content: 'Delete',
+      createdAt: new Date('2024-01-01'),
+    });
+    await seedEntry(fixture.db, {
+      id: 'regenerate-me',
+      content: 'Regenerate',
+      aiStatus: 'failed',
+      createdAt: new Date('2024-01-02'),
+    });
     const actions = createEntryActions({
       db: fixture.db,
       createId: () => 'unused',

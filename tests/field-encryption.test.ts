@@ -1,20 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eq } from 'drizzle-orm';
-import { encryptionKeySlots, entries, entryTags, tags } from '@/lib/db/schema';
+import { encryptionKeySlots, entries, tags } from '@/lib/db/schema';
 import { FieldCipher, entryFieldAad } from '@/lib/crypto/field-cipher';
-import { getFieldCipher } from '@/lib/crypto/cipher';
 import {
   EncryptionKeyError,
   changePassword,
   countKeySlots,
   unlockDataKey,
 } from '@/lib/crypto/key-slots';
-import { countLegacyRows, encryptLegacyRows } from '@/lib/crypto/backfill';
 import { createAIProcessor } from '@/lib/ai/processor';
 import { createEntryActions } from '@/lib/actions/entries-core';
 import { findActiveEntry } from '@/lib/db/entries-repo';
-import { listActiveTagNames, loadEntryTagsMap } from '@/lib/db/entry-tags';
+import { listActiveTagNames } from '@/lib/db/entry-tags';
 import { loadDashboardEntriesPage } from '@/lib/dashboard-data';
 import { loadExportEntries } from '@/lib/export-data';
 import { createTestDb } from './helpers/test-db';
@@ -40,8 +37,8 @@ test('a field decrypts only under the row and column it was written for', () => 
     ),
   );
 
-  // Rows written before encryption read back as they are.
-  assert.equal(cipher.decryptEntryField('a', 'content', 'plain'), 'plain');
+  // Plaintext is never accepted in place of ciphertext.
+  assert.throws(() => cipher.decryptEntryField('a', 'content', 'plain'));
   assert.equal(cipher.decryptEntryField('a', 'title', null), null);
 });
 
@@ -189,91 +186,6 @@ test('changing the password re-wraps the key without touching entries', async ()
       ).decryptEntryField('a', 'content', after.content),
       'kept across rotation',
     );
-  } finally {
-    await fixture.cleanup();
-  }
-});
-
-test('the backfill encrypts old rows in place and is safe to repeat', async () => {
-  const fixture = await createTestDb();
-  try {
-    await seedEntry(fixture.db, {
-      id: 'old',
-      content: 'written before encryption',
-      title: 'old title',
-      summary: 'old summary',
-      deletedAt: new Date(),
-      plaintext: true,
-    });
-    await seedEntry(fixture.db, {
-      id: 'half',
-      content: 'body without metadata',
-      plaintext: true,
-    });
-    // A tag row from before encryption, and a second one whose encrypted twin
-    // the new code has already created.
-    const [legacy] = await fixture.db
-      .insert(tags)
-      .values([{ name: '旧标签' }, { name: '共用' }])
-      .returning({ id: tags.id });
-    await fixture.db
-      .insert(entryTags)
-      .values({ entryId: 'old', tagId: legacy.id });
-    const [shared] = await fixture.db
-      .select({ id: tags.id })
-      .from(tags)
-      .where(eq(tags.name, '共用'));
-    await fixture.db
-      .insert(entryTags)
-      .values({ entryId: 'old', tagId: shared.id });
-    await seedEntry(fixture.db, { id: 'new', tags: ['共用'] });
-
-    assert.deepEqual(await countLegacyRows(fixture.db), {
-      entries: 2,
-      tags: 2,
-    });
-    assert.deepEqual(await encryptLegacyRows(fixture.db), {
-      entries: 2,
-      tags: 2,
-      complete: true,
-    });
-    assert.deepEqual(await countLegacyRows(fixture.db), {
-      entries: 0,
-      tags: 0,
-    });
-    assert.deepEqual(await encryptLegacyRows(fixture.db), {
-      entries: 0,
-      tags: 0,
-      complete: true,
-    });
-
-    const [old] = await fixture.db
-      .select()
-      .from(entries)
-      .where(eq(entries.id, 'old'));
-    for (const value of [old.content, old.title, old.summary]) {
-      assert.match(value ?? '', /^enc:v1:/);
-    }
-    const cipher = await getFieldCipher(fixture.db);
-    assert.equal(
-      cipher.decryptEntryField('old', 'summary', old.summary),
-      'old summary',
-    );
-    assert.equal(
-      (await findActiveEntry('half', fixture.db))?.content,
-      'body without metadata',
-    );
-
-    // The twin absorbed the legacy row: one tag, on both entries.
-    const tagRows = await fixture.db.select().from(tags);
-    assert.equal(tagRows.length, 2);
-    assert.equal(
-      tagRows.every((row) => row.nameHmac && row.name.startsWith('enc:v1:')),
-      true,
-    );
-    const tagsById = await loadEntryTagsMap(fixture.db, ['old', 'new']);
-    assert.deepEqual(tagsById.get('old'), ['共用', '旧标签']);
-    assert.deepEqual(tagsById.get('new'), ['共用']);
   } finally {
     await fixture.cleanup();
   }

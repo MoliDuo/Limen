@@ -11,9 +11,8 @@ const MIN_PASSWORD_LENGTH = 12;
 
 const USAGE = `Usage: npm run crypto -- <command>
 
-  status               How many rows are still plaintext, how many key slots exist
+  status               How many key slots of each kind exist
   init                 Set the master password on a new, empty database
-  encrypt-existing     Encrypt every row written before encryption, in one go
   change-password      Replace the master password and sign out every device
   revoke-sessions      Sign out every device
 
@@ -80,22 +79,17 @@ async function main() {
     return;
   }
 
-  const [{ db }, slots, backfill, { FieldCipher }] = await Promise.all([
+  const [{ db }, slots] = await Promise.all([
     import('../src/lib/db/index'),
     import('../src/lib/crypto/key-slots'),
-    import('../src/lib/crypto/backfill'),
-    import('../src/lib/crypto/field-cipher'),
   ]);
 
   switch (command) {
     case 'status': {
-      const legacy = await backfill.countLegacyRows(db);
       const counts = await slots.countKeySlots(db);
       console.log(`Password slots:      ${counts.password}`);
       console.log(`Signed-in sessions:  ${counts.session}`);
       console.log(`API tokens:          ${counts.api_token}`);
-      console.log(`Plaintext entries:   ${legacy.entries}`);
-      console.log(`Plaintext tag names: ${legacy.tags}`);
       return;
     }
     case 'init': {
@@ -106,24 +100,6 @@ async function main() {
       }
       await slots.unlockDataKey(db, await askNewPassword());
       console.log('Master password set. Keep it in a password manager.');
-      return;
-    }
-    case 'encrypt-existing': {
-      const opened = await slots.unlockWithPassword(
-        db,
-        await askHidden('Master password: '),
-      );
-      if (!opened) throw new Error('Wrong password.');
-      const result = await backfill.encryptLegacyRows(db, {
-        cipher: new FieldCipher(opened.dataKey),
-      });
-      console.log(
-        `Encrypted ${result.entries} entries and ${result.tags} tag names.`,
-      );
-      if (!result.complete) {
-        console.log('Some rows changed while running; run it again.');
-        process.exitCode = 1;
-      }
       return;
     }
     case 'change-password': {

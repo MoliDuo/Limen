@@ -17,7 +17,6 @@ import { recoverStalePendingEntriesThrottled } from '@/lib/ai/stale-pending';
 import { after } from 'next/server';
 import { activeEntries } from '@/lib/db/entry-scope';
 import { getFieldCipher } from '@/lib/crypto/cipher';
-import { encryptLegacyRowsInBackground } from '@/lib/crypto/backfill';
 import type { FieldCipher } from '@/lib/crypto/field-cipher';
 
 export const DASHBOARD_PREVIEW_LENGTH = 280;
@@ -26,10 +25,9 @@ export const DASHBOARD_PREVIEW_LENGTH = 280;
  * Recovery is a write, and this is a read path, so it must not sit in front of
  * the response. after() runs it once the page has been sent.
  */
-function scheduleRecovery(database: AppDatabase, cipher: FieldCipher) {
+function scheduleRecovery(database: AppDatabase) {
   try {
     after(() => recoverStalePendingEntriesThrottled(database));
-    after(() => encryptLegacyRowsInBackground(database, cipher));
   } catch {
     // after() is only available inside a request; tests call these loaders
     // directly, where skipping the sweep is correct.
@@ -204,7 +202,7 @@ export async function loadDashboardEntriesPage(
   database: AppDatabase = db,
 ): Promise<DashboardEntriesPage> {
   const cipher = await getFieldCipher(database);
-  scheduleRecovery(database, cipher);
+  scheduleRecovery(database);
   const query = normalizeSearchQuery(q);
 
   const decryptRow = (row: {
@@ -299,7 +297,7 @@ export async function loadApiEntriesPage(
   database: AppDatabase = db,
 ) {
   const cipher = await getFieldCipher(database);
-  scheduleRecovery(database, cipher);
+  scheduleRecovery(database);
   const rows = await database
     .select({
       id: entries.id,

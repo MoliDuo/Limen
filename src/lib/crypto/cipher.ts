@@ -34,7 +34,7 @@ const ciphers = new WeakMap<Buffer, FieldCipher>();
  * decrypts synchronously. Throws UnauthorizedError without a valid credential.
  *
  * Server Components cannot read cookies inside after(), so work scheduled
- * from one must take the cipher from the render that scheduled it.
+ * from one must be handed the cipher by the render that scheduled it.
  */
 export async function getFieldCipher(
   database: AppDatabase,

@@ -1,5 +1,5 @@
 import { hkdfSync, randomBytes, scrypt as scryptCallback } from 'node:crypto';
-import { and, eq, isNotNull, like, lte, ne, or, sql } from 'drizzle-orm';
+import { and, eq, like, lte, ne, or, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { AppDatabase } from '@/lib/db';
 import { encryptionKeySlots, entries, tags } from '@/lib/db/schema';
@@ -166,18 +166,15 @@ async function hasEncryptedData(database: AppDatabase) {
     )
     .limit(1);
   if (entryRow) return true;
-  const [tagRow] = await database
-    .select({ id: tags.id })
-    .from(tags)
-    .where(isNotNull(tags.nameHmac))
-    .limit(1);
+  // Tag names are always stored encrypted.
+  const [tagRow] = await database.select({ id: tags.id }).from(tags).limit(1);
   return Boolean(tagRow);
 }
 
 /**
  * Opens the data key with the password, minting it first on a database that
- * has never had one. Only `npm run crypto -- init`, the one-time upgrade login
- * and tests call this; everything else opens an existing key or fails.
+ * has never had one. Only `npm run crypto -- init` and tests call this;
+ * everything else opens an existing key or fails.
  *
  * Never mints a key when any slot exists or anything is already encrypted.
  */
