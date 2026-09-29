@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { createEntryActions } from '@/lib/actions/entries-core';
 import { entries } from '@/lib/db/schema';
 import { createTestDb } from './helpers/test-db';
+import { readStoredEntry } from './helpers/test-entries';
 
 function form(content: string, createdAt = '2024-01-03') {
   const data = new FormData();
@@ -139,9 +140,7 @@ test('updateEntry keeps existing ai metadata and returns detail navigation', asy
         data: { id: 'entry-update', redirectTo: '/entries/entry-update' },
       },
     );
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'entry-update'),
-    });
+    const row = await readStoredEntry(fixture.db, 'entry-update');
     assert.equal(row?.content, 'New');
     assert.equal(row?.aiStatus, 'pending');
     // Held until the AI replaces them, so a failed regeneration cannot wipe
@@ -190,9 +189,7 @@ test('a failed ai run after an edit leaves the old title and summary intact', as
     await actions.updateEntry('entry-ai-fails', form('New body', '2024-01-02'));
     await scheduled?.();
 
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'entry-ai-fails'),
-    });
+    const row = await readStoredEntry(fixture.db, 'entry-ai-fails');
     assert.equal(row?.aiStatus, 'failed');
     assert.equal(row?.content, 'New body');
     assert.equal(row?.title, 'A good title');

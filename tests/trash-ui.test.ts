@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { eq } from 'drizzle-orm';
 import {
   UNDO_TOAST_DURATION_MS,
   buildDeletedToastMessage,
@@ -9,10 +8,9 @@ import {
 } from '@/lib/trash/undo-toast';
 import { TRASH_RETENTION_MS } from '@/lib/trash/purge';
 import { messages } from '@/lib/messages';
-import { entries } from '@/lib/db/schema';
 import { createEntryActions } from '@/lib/actions/entries-core';
 import { createTestDb } from './helpers/test-db';
-import { seedEntry } from './helpers/test-entries';
+import { readStoredEntry, seedEntry } from './helpers/test-entries';
 
 function read(path: string) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
@@ -146,9 +144,7 @@ test('restore returns an entry untouched and purge only accepts trashed rows', a
     assert.equal((await entryActions.deleteEntry('e1')).ok, true);
     assert.equal((await entryActions.restoreEntry('e1')).ok, true);
 
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'e1'),
-    });
+    const row = await readStoredEntry(fixture.db, 'e1');
     assert.equal(row?.deletedAt, null);
     assert.equal(row?.title, 'Kept');
     // A restore must not re-open hand-picked tags to the AI.

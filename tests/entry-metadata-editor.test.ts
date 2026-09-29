@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eq } from 'drizzle-orm';
 import {
   buildTagEditorModel,
   normalizeTitleInput,
@@ -9,10 +8,9 @@ import {
 import { createEntryActions } from '@/lib/actions/entries-core';
 import { createAIProcessor } from '@/lib/ai/processor';
 import { loadEntryTagsMap } from '@/lib/db/entry-tags';
-import { entries } from '@/lib/db/schema';
 import { messages } from '@/lib/messages';
 import { createTestDb } from './helpers/test-db';
-import { seedEntry } from './helpers/test-entries';
+import { readStoredEntry, seedEntry } from './helpers/test-entries';
 
 function actions(db: never) {
   return createEntryActions({
@@ -106,9 +104,7 @@ test('hand-picked tags survive an ai regeneration', async () => {
       'mine',
     ]);
     // The rest of the lifecycle still completes.
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'e1'),
-    });
+    const row = await readStoredEntry(fixture.db, 'e1');
     assert.equal(row?.aiStatus, 'done');
     assert.equal(row?.summary, 'AI summary');
     assert.equal(row?.title, 'AI title');
@@ -126,9 +122,7 @@ test('a hand-written title survives an ai regeneration', async () => {
     assert.equal((await entryActions.setEntryTitle('e1', '那天')).ok, true);
     await aiProcessor(fixture.db as never, 'AI title', ['robot'])('e1', 'body');
 
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'e1'),
-    });
+    const row = await readStoredEntry(fixture.db, 'e1');
     assert.equal(row?.title, '那天');
     // Locking the title must not also freeze the tags.
     assert.deepEqual((await loadEntryTagsMap(fixture.db, ['e1'])).get('e1'), [
@@ -151,9 +145,7 @@ test('unlocking hands both fields back to the ai', async () => {
     assert.equal((await entryActions.unlockEntryMetadata('e1')).ok, true);
     await aiProcessor(fixture.db as never, 'AI title', ['robot'])('e1', 'body');
 
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'e1'),
-    });
+    const row = await readStoredEntry(fixture.db, 'e1');
     assert.equal(row?.title, 'AI title');
     assert.deepEqual((await loadEntryTagsMap(fixture.db, ['e1'])).get('e1'), [
       'robot',

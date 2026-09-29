@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTestDb } from './helpers/test-db';
-import { seedEntry } from './helpers/test-entries';
+import { seedEntry, readStoredEntry } from './helpers/test-entries';
 
 test('POST rejects requests without string content', async () => {
   const fixture = await createTestDb();
@@ -183,9 +183,7 @@ test('POST keeps the entry when AI scheduling fails', async () => {
       }),
     );
     assert.equal(response.status, 201);
-    const row = await fixture.db.query.entries.findFirst({
-      where: (fields, { eq }) => eq(fields.id, 'scheduled-entry'),
-    });
+    const row = await readStoredEntry(fixture.db, 'scheduled-entry');
     assert.equal(row?.content, 'Saved before scheduler failure');
     assert.equal(row?.aiStatus, 'failed');
     assert.equal((await response.json()).aiStatus, 'failed');

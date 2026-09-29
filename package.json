@@ -14,7 +14,8 @@
     "format:check": "prettier --check .",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "crypto": "tsx scripts/crypto.ts"
   },
   "packageManager": "npm@11.17.0",
   "engines": {

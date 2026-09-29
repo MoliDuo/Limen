@@ -10,6 +10,8 @@ import {
 } from '@/lib/db/entry-tags';
 import { entries } from '@/lib/db/schema';
 import { createTestDb } from './helpers/test-db';
+import { getFieldCipher } from '@/lib/crypto/cipher';
+import { FieldCipher } from '@/lib/crypto/field-cipher';
 import { seedEntry } from './helpers/test-entries';
 
 async function tagsOf(fixture: { db: never }, id: string) {
@@ -139,7 +141,7 @@ test('hasAnyTag matches any of the given names', async () => {
     const rows = await fixture.db
       .select({ id: entries.id })
       .from(entries)
-      .where(hasAnyTag(['alpha', 'beta']))
+      .where(hasAnyTag(await getFieldCipher(fixture.db), ['alpha', 'beta']))
       .orderBy(entries.id);
     assert.deepEqual(
       rows.map((row) => row.id),
@@ -151,8 +153,15 @@ test('hasAnyTag matches any of the given names', async () => {
 });
 
 test('parseTagNames tolerates whatever the database returns', () => {
-  assert.deepEqual(parseTagNames('["a","b"]'), ['a', 'b']);
-  assert.deepEqual(parseTagNames('[]'), []);
-  assert.deepEqual(parseTagNames(null), []);
-  assert.deepEqual(parseTagNames('{broken'), []);
+  const cipher = new FieldCipher(Buffer.alloc(32, 7));
+  const stored = JSON.stringify([
+    cipher.encryptTagName('b'),
+    cipher.encryptTagName('a'),
+  ]);
+  assert.deepEqual(parseTagNames(cipher, stored), ['a', 'b']);
+  // Rows the encryption backfill has not reached yet.
+  assert.deepEqual(parseTagNames(cipher, '["a","b"]'), ['a', 'b']);
+  assert.deepEqual(parseTagNames(cipher, '[]'), []);
+  assert.deepEqual(parseTagNames(cipher, null), []);
+  assert.deepEqual(parseTagNames(cipher, '{broken'), []);
 });

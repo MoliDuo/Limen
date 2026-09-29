@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { eq } from 'drizzle-orm';
 import { entries } from '@/lib/db/schema';
 import { createTestDb } from './helpers/test-db';
-import { seedEntry } from './helpers/test-entries';
+import { seedEntry, readStoredEntry } from './helpers/test-entries';
 
 test('processAIEntry marks an entry done with structured metadata on success', async () => {
   const fixture = await createTestDb();
@@ -46,9 +46,7 @@ test('processAIEntry marks an entry done with structured metadata on success', a
 
     await processor('entry-success', 'Today I wrote tests.');
 
-    const row = await fixture.db.query.entries.findFirst({
-      where: eq(entries.id, 'entry-success'),
-    });
+    const row = await readStoredEntry(fixture.db, 'entry-success');
 
     assert.equal(row?.aiStatus, 'done');
     assert.equal(row?.title, '我今天重新把测试补好了');

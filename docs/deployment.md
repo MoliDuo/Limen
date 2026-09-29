@@ -43,11 +43,11 @@ Vercel 的 Build and Output Settings 使用以下默认设置即可：
 
 在 Vercel 项目设置中配置以下环境变量：
 
-| 变量            | 必须 | 说明                                                        |
-| --------------- | ---- | ----------------------------------------------------------- |
-| `DATABASE_URL`  | 是   | Neon Postgres 连接串，推荐通过 Vercel Marketplace 连接 Neon |
-| `AUTH_PASSWORD` | 是   | Web 登录和 Bearer API 共用的明文密码                        |
-| `AI_API_KEY`    | 是   | OpenAI API Key                                              |
+| 变量            | 必须 | 说明                                                           |
+| --------------- | ---- | -------------------------------------------------------------- |
+| `DATABASE_URL`  | 是   | Neon Postgres 连接串，推荐通过 Vercel Marketplace 连接 Neon    |
+| `AUTH_PASSWORD` | 是   | Web 登录和 Bearer API 共用的明文密码，也是日记内容的加密主密码 |
+| `AI_API_KEY`    | 是   | OpenAI API Key                                                 |
 
 **可选变量:**
 
@@ -70,7 +70,7 @@ Vercel 的 Build and Output Settings 使用以下默认设置即可：
 
 ## 凭证轮换
 
-直接修改 Vercel 中的 `AUTH_PASSWORD` 并重新部署，然后同步更新 Web 登录和所有 API 客户端。轮换会同时注销现有浏览器会话并使旧 Bearer 凭证失效。
+`AUTH_PASSWORD` 同时是日记内容的加密主密码，**不能直接修改**，否则新密码解不开数据密钥，应用会报错。请按 [encryption.md](encryption.md#更换主密码) 的三步流程操作：先用 `npm run crypto -- add-password` 添加新密码，再修改 Vercel 环境变量并重新部署，最后执行 `remove-other-slots`。轮换会同时注销现有浏览器会话并使旧 Bearer 凭证失效。
 
 升级旧部署时，删除 `AUTH_PASSWORD_HASH`、`API_TOKEN_HASH` 和 `SESSION_SECRET`，避免继续维护互相不同步的凭证。
 
@@ -110,9 +110,20 @@ curl "https://your-app.vercel.app/api/entries/<id>" \
 - **迁移**: 数据库迁移不自动执行，需手动运行 `npm run db:migrate`
 - **构建**: Vercel Framework Preset 为 `Next.js`，Build Command 使用默认值
 
+## 内容加密上线
+
+迁移 `0009` 新增 `encryption_key_slots` 表，改造 `tags` 表，并删除早先推迟的旧列 `entries.tags`。加密之后，旧版本代码读不懂新写入的密文，所以**这次部署无法靠重新部署旧版本回滚**：
+
+1. 部署前在 Neon 为生产库开一个 branch，作为回滚点；
+2. 部署后打开时间线，旧数据会在后台逐步加密；也可以在本地执行 `npm run crypto -- encrypt-existing` 一次完成，再用 `npm run crypto -- status` 确认明文已经清零；
+3. 确认一切正常后，删除这个 branch 和其他旧 branch，因为它们里面仍有明文。
+
+威胁模型、存储格式和离线解密方法见 [encryption.md](encryption.md)。
+
 ## 安全注意事项
 
 - 本应用为**单用户设计**，API 无用户层级权限控制
 - `AUTH_PASSWORD` 是明文主凭证，只应存放在 Vercel 环境变量、密码管理器和受信任的 API 客户端中
+- `AUTH_PASSWORD` 也是加密主密码：数据库泄露后，攻击者可以离线暴力猜测它，因此必须足够长、足够随机；一旦遗忘，日记就无法解密
 - 部署后应验证安全响应头和 nonce CSP 是否正常工作
 - 轮换 `AUTH_PASSWORD` 后必须同时验证 Web 登录和 API 写入

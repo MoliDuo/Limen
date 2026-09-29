@@ -1,15 +1,17 @@
 import type { AppDatabase } from '@/lib/db';
 import { entries } from '@/lib/db/schema';
 import { syncEntryTags } from '@/lib/db/entry-tags';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 
 type SeedEntryOptions = Partial<Omit<typeof entries.$inferInsert, 'tags'>> & {
   /** Written to entry_tags, bypassing tags_locked_at. */
   tags?: string[];
+  plaintext?: boolean;
 };
 
 export async function seedEntry(db: AppDatabase, value: SeedEntryOptions = {}) {
   const now = new Date();
-  const { tags, ...columns } = value;
+  const { tags, plaintext, ...columns } = value;
   const entry = {
     id: columns.id ?? 'entry-1',
     content: columns.content ?? 'Seeded entry content',
@@ -23,9 +25,39 @@ export async function seedEntry(db: AppDatabase, value: SeedEntryOptions = {}) {
     updatedAt: columns.updatedAt ?? now,
   } satisfies typeof entries.$inferInsert;
 
-  await db.insert(entries).values(entry);
+  // Stored the way the app stores it; `plaintext: true` seeds a row from
+  // before encryption existed.
+  const cipher = plaintext ? null : await getFieldCipher(db);
+  await db.insert(entries).values(
+    cipher
+      ? {
+          ...entry,
+          content: cipher.encryptEntryField(entry.id, 'content', entry.content),
+          title: cipher.encryptEntryField(entry.id, 'title', entry.title),
+          summary: cipher.encryptEntryField(entry.id, 'summary', entry.summary),
+        }
+      : entry,
+  );
   if (tags && tags.length > 0) {
     await syncEntryTags(db, entry.id, tags, { respectLock: false });
   }
   return { ...entry, tags: tags ?? [] };
+}
+
+/**
+ * A row as stored, with the encrypted columns decrypted. Deliberately bypasses
+ * the app's scoped readers so tests can inspect trashed rows too.
+ */
+export async function readStoredEntry(db: AppDatabase, id: string) {
+  const row = await db.query.entries.findFirst({
+    where: (fields, { eq }) => eq(fields.id, id),
+  });
+  if (!row) return undefined;
+  const cipher = await getFieldCipher(db);
+  return {
+    ...row,
+    content: cipher.decryptEntryField(id, 'content', row.content),
+    title: cipher.decryptEntryField(id, 'title', row.title),
+    summary: cipher.decryptEntryField(id, 'summary', row.summary),
+  };
 }

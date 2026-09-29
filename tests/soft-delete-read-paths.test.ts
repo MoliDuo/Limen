@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { entries } from '@/lib/db/schema';
 import type { AppDatabase } from '@/lib/db';
 import { createTestDb } from './helpers/test-db';
-import { seedEntry } from './helpers/test-entries';
+import { seedEntry, readStoredEntry } from './helpers/test-entries';
 
 const DELETED_AT = new Date('2026-09-01T00:00:00.000Z');
 
@@ -207,9 +207,7 @@ test('an ai job finishing after a delete does not revive the entry', async () =>
       });
       await processor('trashed', 'in the bin');
 
-      const row = await db.query.entries.findFirst({
-        where: eq(entries.id, 'trashed'),
-      });
+      const row = await readStoredEntry(db, 'trashed');
       assert.equal(row?.title, 'Trashed');
       assert.equal(row?.aiStatus, 'pending');
     },

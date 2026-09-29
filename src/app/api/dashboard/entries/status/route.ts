@@ -6,6 +6,7 @@ import { entries } from '@/lib/db/schema';
 import { normalizeAIStatus } from '@/lib/ai/polling';
 import { recoverStalePendingEntries } from '@/lib/ai/stale-pending';
 import { loadEntryTagsMap } from '@/lib/db/entry-tags';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 import { activeEntries } from '@/lib/db/entry-scope';
 
 export const maxDuration = 60;
@@ -57,6 +58,7 @@ export function createBatchEntryStatusHandler({
     }
 
     await recoverPending(database);
+    const cipher = await getFieldCipher(database);
     const rows = await database
       .select({
         id: entries.id,
@@ -76,6 +78,8 @@ export function createBatchEntryStatusHandler({
           ? [
               {
                 ...row,
+                title: cipher.decryptEntryField(id, 'title', row.title),
+                summary: cipher.decryptEntryField(id, 'summary', row.summary),
                 aiStatus: normalizeAIStatus(row.aiStatus),
                 tags: tagsById.get(id) ?? [],
               },

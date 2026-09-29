@@ -5,6 +5,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react';
 import { db } from '@/lib/db';
 import { entries } from '@/lib/db/schema';
 import { entryTagNamesSql, parseTagNames } from '@/lib/db/entry-tags';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 import { trashedEntries } from '@/lib/db/entry-scope';
 import { daysUntilPurge, purgeExpiredEntries } from '@/lib/trash/purge';
 import { formatAbsoluteDate } from '@/lib/format';
@@ -47,6 +48,7 @@ export default async function TrashPage() {
   // the cost does not matter, which is why the sweep is not on the hot path.
   await purgeExpiredEntries();
 
+  const cipher = await getFieldCipher(db);
   const rows = await db
     .select({
       id: entries.id,
@@ -63,9 +65,12 @@ export default async function TrashPage() {
   const model = buildTrashViewModel(
     rows.map((row) => ({
       id: row.id,
-      title: row.title,
-      preview: (row.preview ?? row.content).slice(0, 200),
-      tags: parseTagNames(row.tags),
+      title: cipher.decryptEntryField(row.id, 'title', row.title),
+      preview: (row.preview === null
+        ? cipher.decryptEntryField(row.id, 'content', row.content)
+        : cipher.decryptEntryField(row.id, 'summary', row.preview)
+      ).slice(0, 200),
+      tags: parseTagNames(cipher, row.tags),
       deletedAt: row.deletedAt as Date,
     })),
     messages,

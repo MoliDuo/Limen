@@ -18,6 +18,7 @@ import {
   parseEntryInput,
 } from '@/lib/validation';
 import type { ActionResult } from '@/lib/actions/result';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 
 type EntryActionDeps = {
   db: AppDatabase;
@@ -59,9 +60,10 @@ export function createEntryActions({
 
       const id = createId();
       const now = new Date();
+      const cipher = await getFieldCipher(db);
       await db.insert(entries).values({
         id,
-        content: input.content,
+        content: cipher.encryptEntryField(id, 'content', input.content),
         source: 'web',
         aiStatus: 'pending',
         createdAt: input.createdAt,
@@ -106,11 +108,16 @@ export function createEntryActions({
         .returning({ id: entries.id, title: entries.title });
       const row = deleted[0];
       if (!row) return { ok: false, error: messages.common.entryNotFound };
+      const cipher = await getFieldCipher(db);
       revalidatePath(dashboardPath());
       revalidatePath(trashPath());
       return {
         ok: true,
-        data: { id, title: row.title, redirectTo: dashboardPath() },
+        data: {
+          id,
+          title: cipher.decryptEntryField(id, 'title', row.title),
+          redirectTo: dashboardPath(),
+        },
       };
     },
 
@@ -175,10 +182,11 @@ export function createEntryActions({
     ): Promise<ActionResult<{ id: string; title: string | null }>> {
       await authorize();
       const normalized = normalizeTitleInput(title);
+      const cipher = await getFieldCipher(db);
       const updated = await db
         .update(entries)
         .set({
-          title: normalized,
+          title: cipher.encryptEntryField(id, 'title', normalized),
           titleLockedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -228,10 +236,11 @@ export function createEntryActions({
       // The previous title/summary/tags stay until the AI produces new ones.
       // Clearing them up front meant a failed AI call destroyed good metadata
       // permanently: fixing one typo could cost you the entry's title.
+      const cipher = await getFieldCipher(db);
       const updated = await db
         .update(entries)
         .set({
-          content: input.content,
+          content: cipher.encryptEntryField(id, 'content', input.content),
           aiStatus: 'pending',
           createdAt: input.createdAt,
           updatedAt: new Date(),
@@ -289,11 +298,24 @@ export function createEntryActions({
       const normalizedIds = normalizeEntryIds(ids);
       if (normalizedIds.length === 0) return { ok: true, data: { ids: [] } };
 
+      const cipher = await getFieldCipher(db);
       const foundEntries = await db
         .select({ id: entries.id, content: entries.content })
         .from(entries)
         .where(activeEntries(inArray(entries.id, normalizedIds)));
-      const entryMap = new Map(foundEntries.map((entry) => [entry.id, entry]));
+      const entryMap = new Map(
+        foundEntries.map((entry) => [
+          entry.id,
+          {
+            id: entry.id,
+            content: cipher.decryptEntryField(
+              entry.id,
+              'content',
+              entry.content,
+            ),
+          },
+        ]),
+      );
 
       await db
         .update(entries)

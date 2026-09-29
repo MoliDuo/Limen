@@ -3,9 +3,12 @@ import type { AppDatabase } from '@/lib/db';
 import { entries, entryTags, tags } from '@/lib/db/schema';
 import { normalizeTags } from '@/lib/tags';
 import { activeEntries } from '@/lib/db/entry-scope';
+import { getFieldCipher } from '@/lib/crypto/cipher';
+import type { FieldCipher } from '@/lib/crypto/field-cipher';
 
 /**
- * A correlated subquery returning an entry's tag names as a JSON array string.
+ * A correlated subquery returning an entry's encrypted tag names as a JSON
+ * array string; parseTagNames decrypts and orders them.
  *
  * Cast to ::text and parsed in JS rather than relying on the driver's JSON
  * handling, because neon-http and PGlite decode json columns differently.
@@ -16,19 +19,39 @@ import { activeEntries } from '@/lib/db/entry-scope';
  * `${entries.id}` becomes "id" and silently binds to tags.id instead.
  */
 export const entryTagNamesSql = sql<string>`(
-  SELECT coalesce(json_agg(t.name ORDER BY t.name), '[]')::text
+  SELECT coalesce(json_agg(t.name), '[]')::text
   FROM entry_tags et
   JOIN tags t ON t.id = et.tag_id
   WHERE et.entry_id = "entries"."id"
 )`;
 
-export function parseTagNames(value: string | null): string[] {
+/**
+ * Sorted in JS because the database only holds ciphertext, and because
+ * Postgres collation would not reproduce pinyin order anyway.
+ */
+function sortTagNames(names: Iterable<string>) {
+  return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+}
+
+export function parseTagNames(
+  cipher: FieldCipher,
+  value: string | null,
+): string[] {
   if (!value) return [];
+  let stored: unknown;
   try {
-    return normalizeTags(JSON.parse(value));
+    stored = JSON.parse(value);
   } catch {
     return [];
   }
+  if (!Array.isArray(stored)) return [];
+  return sortTagNames(
+    normalizeTags(
+      stored.map((name) =>
+        typeof name === 'string' ? cipher.decryptTagName(name) : name,
+      ),
+    ),
+  );
 }
 
 export async function loadEntryTagsMap(
@@ -37,13 +60,15 @@ export async function loadEntryTagsMap(
 ): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>(ids.map((id) => [id, []]));
   if (ids.length === 0) return map;
+  const cipher = await getFieldCipher(database);
   const rows = await database
     .select({ entryId: entryTags.entryId, name: tags.name })
     .from(entryTags)
     .innerJoin(tags, sql`${tags.id} = ${entryTags.tagId}`)
-    .where(inArray(entryTags.entryId, ids))
-    .orderBy(tags.name);
-  for (const row of rows) map.get(row.entryId)?.push(row.name);
+    .where(inArray(entryTags.entryId, ids));
+  for (const row of rows)
+    map.get(row.entryId)?.push(cipher.decryptTagName(row.name));
+  for (const [id, names] of map) map.set(id, sortTagNames(new Set(names)));
   return map;
 }
 
@@ -56,6 +81,7 @@ export async function loadEntryTagsMap(
 export async function listActiveTagNames(
   database: AppDatabase,
 ): Promise<string[]> {
+  const cipher = await getFieldCipher(database);
   const rows = await database
     .selectDistinct({ name: tags.name })
     .from(tags)
@@ -64,21 +90,30 @@ export async function listActiveTagNames(
     // Without this a trashed entry's tags keep feeding the AI prompt and keep
     // showing up as export checkboxes that can never match anything.
     .where(activeEntries());
-  // Sorted in JS: Postgres collation will not reproduce pinyin order, and this
-  // list is small enough that it does not matter.
-  return rows
-    .map((row) => row.name)
-    .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  // The Set folds a not-yet-backfilled plaintext row into its encrypted twin.
+  return sortTagNames(
+    new Set(rows.map((row) => cipher.decryptTagName(row.name))),
+  );
 }
 
-/** "This entry carries at least one of these tags." Uses the tag_id index. */
-export function hasAnyTag(names: string[]): SQL {
+/**
+ * "This entry carries at least one of these tags." Uses the tag_id index.
+ *
+ * Matches on the keyed hash; the plaintext branch only covers tag rows the
+ * encryption backfill has not reached yet, and the names it compares are
+ * query parameters, never stored.
+ */
+export function hasAnyTag(cipher: FieldCipher, names: string[]): SQL {
   if (names.length === 0) return sql`false`;
+  const hashes = names.map((name) => cipher.tagIndex(name));
   return sql`EXISTS (
     SELECT 1 FROM entry_tags et
     JOIN tags t ON t.id = et.tag_id
     WHERE et.entry_id = "entries"."id"
-      AND t.name = ANY(${sql.param(names)})
+      AND (
+        t.name_hmac = ANY(${sql.param(hashes)})
+        OR (t.name_hmac IS NULL AND t.name = ANY(${sql.param(names)}))
+      )
   )`;
 }
 
@@ -100,6 +135,8 @@ export async function syncEntryTags(
   { respectLock = true }: { respectLock?: boolean } = {},
 ): Promise<void> {
   const normalized = normalizeTags(names);
+  const cipher = await getFieldCipher(database);
+  const hashes = normalized.map((name) => cipher.tagIndex(name));
   const unlocked = respectLock
     ? sql`EXISTS (
         SELECT 1 FROM entries e
@@ -110,12 +147,17 @@ export async function syncEntryTags(
   if (normalized.length > 0) {
     await database
       .insert(tags)
-      .values(normalized.map((name) => ({ name })))
+      .values(
+        normalized.map((name, index) => ({
+          name: cipher.encryptTagName(name),
+          nameHmac: hashes[index],
+        })),
+      )
       .onConflictDoNothing();
     await database.execute(sql`
       INSERT INTO entry_tags (entry_id, tag_id)
       SELECT ${entryId}, t.id FROM tags t
-      WHERE t.name = ANY(${sql.param(normalized)}) AND ${unlocked}
+      WHERE t.name_hmac = ANY(${sql.param(hashes)}) AND ${unlocked}
       ON CONFLICT DO NOTHING
     `);
   }
@@ -123,7 +165,7 @@ export async function syncEntryTags(
   const keep =
     normalized.length > 0
       ? sql`AND entry_tags.tag_id NOT IN (
-          SELECT t.id FROM tags t WHERE t.name = ANY(${sql.param(normalized)})
+          SELECT t.id FROM tags t WHERE t.name_hmac = ANY(${sql.param(hashes)})
         )`
       : sql``;
 

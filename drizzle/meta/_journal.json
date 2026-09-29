@@ -57,6 +57,13 @@
       "when": 1789983537537,
       "tag": "0008_free_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790675824019,
+      "tag": "0009_field_encryption",
+      "breakpoints": true
     }
   ]
 }

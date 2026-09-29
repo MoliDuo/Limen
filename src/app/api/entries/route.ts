@@ -10,6 +10,7 @@ import { InputValidationError, parseEntryInput } from '@/lib/validation';
 import { parsePageLimit } from '@/lib/pagination';
 import { serializeApiEntry } from '@/lib/api/entry-serializer';
 import { activeEntries } from '@/lib/db/entry-scope';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 
 export const maxDuration = 60;
 export const preferredRegion = 'sin1';
@@ -67,11 +68,12 @@ export function createEntriesRouteHandlers({
 
         id = createId();
         const now = new Date();
+        const cipher = await getFieldCipher(database);
         const inserted = await database
           .insert(entries)
           .values({
             id,
-            content: input.content,
+            content: cipher.encryptEntryField(id, 'content', input.content),
             source: 'web',
             aiStatus: 'pending',
             createdAt: input.createdAt,

@@ -3,6 +3,7 @@ import { db, type AppDatabase } from '@/lib/db';
 import { entries } from '@/lib/db/schema';
 import { entryTagNamesSql, parseTagNames } from '@/lib/db/entry-tags';
 import { activeEntries, trashedEntries } from '@/lib/db/entry-scope';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 
 export type EntryRecord = {
   id: string;
@@ -40,13 +41,21 @@ async function findOne(
   database: AppDatabase,
   where: ReturnType<typeof activeEntries>,
 ): Promise<EntryRecord | undefined> {
+  const cipher = await getFieldCipher(database);
   const rows = await database
     .select(ENTRY_COLUMNS)
     .from(entries)
     .where(where)
     .limit(1);
   const row = rows[0];
-  return row ? { ...row, tags: parseTagNames(row.tags) } : undefined;
+  if (!row) return undefined;
+  return {
+    ...row,
+    content: cipher.decryptEntryField(row.id, 'content', row.content),
+    title: cipher.decryptEntryField(row.id, 'title', row.title),
+    summary: cipher.decryptEntryField(row.id, 'summary', row.summary),
+    tags: parseTagNames(cipher, row.tags),
+  };
 }
 
 /**

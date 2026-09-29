@@ -70,25 +70,19 @@ export const entries = pgTable(
   ],
 );
 
-// `name` is the business key; the integer id never leaves the database. An
-// identity column keeps entry_tags and its indexes narrow and lets the 0005
-// backfill run as plain SQL without inventing application ids.
-export const tags = pgTable(
-  'tags',
-  {
-    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
-    name: text('name').notNull().unique(),
-    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
-      .notNull()
-      .defaultNow(),
-  },
-  (table) => [
-    check(
-      'tags_name_length_check',
-      sql`char_length(${table.name}) between 1 and 50`,
-    ),
-  ],
-);
+// `name` holds the encrypted tag name and `name_hmac` is the business key: a
+// keyed hash of the plaintext name, so uniqueness and tag filters still run in
+// SQL without the database ever seeing the name. `name_hmac` is null only for
+// rows written before encryption, until lib/crypto/backfill.ts reaches them.
+// The integer id never leaves the database.
+export const tags = pgTable('tags', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  name: text('name').notNull(),
+  nameHmac: text('name_hmac').unique(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});
 
 export const entryTags = pgTable(
   'entry_tags',
@@ -163,3 +157,20 @@ export const settings = pgTable(
     ),
   ],
 );
+
+/**
+ * The data key, wrapped once per password that may open it (LUKS-style slots).
+ * Every slot wraps the same key, so changing the password adds a slot and
+ * removes the old one without re-encrypting a single entry. See
+ * docs/encryption.md for the exact format.
+ */
+export const encryptionKeySlots = pgTable('encryption_key_slots', {
+  id: text('id').primaryKey(),
+  kdf: text('kdf').notNull(),
+  kdfParams: text('kdf_params').notNull(),
+  salt: text('salt').notNull(),
+  wrappedKey: text('wrapped_key').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+    .notNull()
+    .defaultNow(),
+});

@@ -6,6 +6,7 @@ import { eq, sql } from 'drizzle-orm';
 import { normalizeTags } from '@/lib/tags';
 import { listActiveTagNames, syncEntryTags } from '@/lib/db/entry-tags';
 import { activeEntries } from '@/lib/db/entry-scope';
+import { getFieldCipher } from '@/lib/crypto/cipher';
 
 const AI_CHUNK_LENGTH = 30_000;
 const CHUNK_CONCURRENCY = 3;
@@ -157,14 +158,20 @@ export function createAIProcessor({
     try {
       const tags = existingTags ?? (await getExistingTags(database));
       const aiResult = await generateMetadata(client, model, content, tags);
+      const cipher = await getFieldCipher(database);
       // The title is skipped when the owner has renamed the entry; the summary
       // and status always refresh so the lifecycle still completes.
       await database
         .update(entries)
         .set({
           title: sql`case when ${entries.titleLockedAt} is null
-            then ${aiResult.title} else ${entries.title} end`,
-          summary: aiResult.summary,
+            then ${cipher.encryptEntryField(entryId, 'title', aiResult.title)}
+            else ${entries.title} end`,
+          summary: cipher.encryptEntryField(
+            entryId,
+            'summary',
+            aiResult.summary,
+          ),
           aiStatus: 'done',
           updatedAt: new Date(),
         })
